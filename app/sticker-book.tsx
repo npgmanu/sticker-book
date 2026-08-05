@@ -7,6 +7,7 @@ import { parseStickerList, type StickerListParseResult } from "./sticker-list-pa
 import { TradeCompare } from "./trade-compare";
 import { TradeBasket, TradeHistory, type TradeHistoryEntry } from "./trade-basket";
 import { VoiceAdd, type VoiceSavedEntry } from "./voice-add";
+import { FlagIcon } from "./flag-icon";
 
 type Tab = "album" | "needs" | "trade" | "profile";
 type Viewer = { name: string; email: string; signedIn: boolean };
@@ -566,7 +567,7 @@ function PackMode({
                 <div className="search-results">
                   {searchResults.length ? searchResults.map((sticker) => (
                     <button key={sticker.code} onClick={() => addSticker(sticker.code)}>
-                      <span>{sticker.section.flag}</span>
+                      <FlagIcon code={sticker.section.code} fallback={sticker.section.flag} />
                       <span><strong>{sticker.displayCode}</strong><small>{sticker.section.name} · {sticker.name}</small></span>
                       <b>{(collection[sticker.code] ?? 0) > 0 ? `×${collection[sticker.code]}` : "ADD"}</b>
                     </button>
@@ -719,7 +720,7 @@ function ImportCollection({
 }
 
 function AccountGate() {
-  const [mode, setMode] = useState<"signup" | "login">("signup");
+  const [mode, setMode] = useState<"signup" | "login">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -1032,7 +1033,7 @@ function AlbumView({
         <div className="section-card-list">
           {visibleSections.map(({ section, collected, complete, percentage }) => (
             <button className={`section-card tone-${section.tone} ${complete ? "is-complete" : ""}`} key={section.code} onClick={() => onOpenSection(section)}>
-              <span className="flag-tile">{section.flag}</span>
+              <span className="flag-tile"><FlagIcon code={section.code} fallback={section.flag} /></span>
               <span className="section-info">
                 <strong>{section.name}</strong>
                 <span className="section-meta"><b>{section.code}</b><i>·</i><em>{collected} / {section.count}</em></span>
@@ -1084,7 +1085,7 @@ function StickerGrid({
   return (
     <section className="grid-page">
       <div className={`section-banner tone-${section.tone}`}>
-        <span className="big-flag">{section.flag}</span>
+        <span className="big-flag"><FlagIcon code={section.code} fallback={section.flag} /></span>
         <div><p>{section.code}</p><h1>{section.name}</h1><span>{collected} of {section.count} collected</span></div>
         <strong>{Math.round((collected / section.count) * 100)}%</strong>
       </div>
@@ -1267,7 +1268,7 @@ function ListView({ kind, stickers, collection, setQuantity, basket, tradeHistor
           <article className="auto-list-group" key={section.code}>
             <header>
               <span className="auto-code">{section.code}</span>
-              <span className="auto-section-name"><b>{section.flag}</b><strong>{section.name}</strong></span>
+              <span className="auto-section-name"><b><FlagIcon code={section.code} fallback={section.flag} /></b><strong>{section.name}</strong></span>
               <small>{isNeeds ? groupStickers.length : groupStickers.reduce((total, sticker) => total + Math.max(0, (collection[sticker.code] ?? 0) - 1), 0)}</small>
             </header>
             {isNeeds ? <div className="number-list">

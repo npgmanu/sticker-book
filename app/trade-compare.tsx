@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { activeAlbum, albumSections, getCatalogSticker, getSectionStickers, makeStickerCode } from "./catalog";
 import { parseStickerList, type StickerListParseResult } from "./sticker-list-parser";
+import { FlagIcon } from "./flag-icon";
 
 type Collection = Record<string, number>;
 type MatchGroup = { code: string; name: string; flag: string; numbers: number[] };
@@ -28,7 +29,7 @@ function MatchResults({ title, groups, emptyCopy, onAddToBasket }: { title: stri
     <section className="compare-result-card">
       <header><div><p>{title}</p><h3>{count} match{count === 1 ? "" : "es"}</h3></div><span>{count}</span></header>
       {groups.length ? <div className="compare-result-groups">{groups.map((group) => (
-        <div key={group.code}><strong>{group.code}</strong>{onAddToBasket ? <span className="compare-basket-numbers">{group.numbers.map((number) => <button key={number} onClick={() => onAddToBasket(makeStickerCode(group.code, number))}>{displayNumber(group.code, number)} <i>＋</i></button>)}</span> : <span>{group.numbers.map((number) => displayNumber(group.code, number)).join(", ")}</span>}<b>{group.flag}</b></div>
+        <div key={group.code}><strong>{group.code}</strong>{onAddToBasket ? <span className="compare-basket-numbers">{group.numbers.map((number) => <button key={number} onClick={() => onAddToBasket(makeStickerCode(group.code, number))}>{displayNumber(group.code, number)} <i>＋</i></button>)}</span> : <span>{group.numbers.map((number) => displayNumber(group.code, number)).join(", ")}</span>}<b><FlagIcon code={group.code} fallback={group.flag} /></b></div>
       ))}</div> : <p className="compare-empty-result">{emptyCopy}</p>}
     </section>
   );

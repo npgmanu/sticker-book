@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { albumSections, getSectionStickers, stickerDisplayCode } from "./catalog";
+import { FlagIcon } from "./flag-icon";
 
 export type TradeHistoryEntry = {
   id: string;
@@ -80,7 +81,7 @@ export function TradeBasket({
           <div className="basket-body">
             {step === "confirm" && <div className="confirm-trade-copy"><p className="eyebrow">YOU ARE GIVING</p><h1>Review what you&apos;re giving.</h1><p>Nothing changes until you confirm.</p></div>}
             {groups.length ? <div className={`basket-groups ${step === "confirm" ? "confirming" : ""}`}>{groups.map(({ section, items: groupItems }) => (
-              <section className="basket-group" key={section.code}><header><span>{section.code}</span><strong>{section.name}</strong><b>{section.flag}</b></header><div>{groupItems.map((item) => {
+              <section className="basket-group" key={section.code}><header><span>{section.code}</span><strong>{section.name}</strong><b><FlagIcon code={section.code} fallback={section.flag} /></b></header><div>{groupItems.map((item) => {
                 const extras = Math.max(0, (collection[item.code] ?? 0) - 1);
                 const available = Math.max(0, extras - item.reserved);
                 return <article key={item.code}><span className="basket-sticker-code"><strong>{item.displayCode}</strong><small>{step === "confirm" ? `Giving ${item.reserved}` : `${item.reserved} in this trade`}</small></span>{step === "confirm" ? <b className="confirm-quantity">×{item.reserved}</b> : <><div className="basket-quantity"><button onClick={() => void onAdjust(item.code, -1)} aria-label={`Decrease ${item.displayCode} in basket`}>−</button><strong>{item.reserved}</strong><button disabled={available < 1} onClick={() => void onAdjust(item.code, 1)} aria-label={`Increase ${item.displayCode} in basket`}>＋</button></div><button className="remove-basket-item" onClick={() => void removeAll(item.code, item.reserved)}>Remove</button></>}</article>;
