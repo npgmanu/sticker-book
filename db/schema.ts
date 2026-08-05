@@ -7,8 +7,17 @@ export const users = sqliteTable("users", {
   onboardingCompleted: integer("onboarding_completed", { mode: "boolean" }).notNull().default(false),
   activeAlbumId: text("active_album_id"),
   setupMethod: text("setup_method"),
+  passwordHash: text("password_hash"),
+  passwordSalt: text("password_salt"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const sessions = sqliteTable("sessions", {
+  tokenHash: text("token_hash").primaryKey(),
+  userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 export const albums = sqliteTable("albums", {

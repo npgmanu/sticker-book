@@ -3,6 +3,7 @@ import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } fr
 import handler from "vinext/server/app-router-entry";
 import { handleAccountRequest, handleCollectionRequest } from "./collection-api";
 import { handleTradeRequest } from "./trade-api";
+import { handleAuthRequest } from "./auth-api";
 
 interface Env {
   ASSETS: Fetcher;
@@ -30,6 +31,10 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname.startsWith("/api/auth/")) {
+      return handleAuthRequest(request, env);
+    }
 
     if (url.pathname === "/api/collection") {
       return handleCollectionRequest(request, env);

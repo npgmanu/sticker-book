@@ -1,25 +1,11 @@
 import { activeAlbum, albumSections, catalogStickers } from "../app/catalog";
+import { viewerFromSession } from "./auth-api";
 
 type CollectionEnv = {
   DB: D1Database;
 };
 
-export function viewerFromRequest(request: Request) {
-  const email = request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase();
-  if (!email) return null;
-
-  const encodedName = request.headers.get("oai-authenticated-user-full-name");
-  const encoding = request.headers.get("oai-authenticated-user-full-name-encoding");
-  let displayName = email;
-  if (encodedName && encoding === "percent-encoded-utf-8") {
-    try {
-      displayName = decodeURIComponent(encodedName);
-    } catch {
-      displayName = email;
-    }
-  }
-  return { email, displayName };
-}
+export const viewerFromRequest = viewerFromSession;
 
 export async function ensureCatalogAndCollector(db: D1Database, email: string, displayName: string) {
   await db
@@ -137,7 +123,7 @@ export async function readCollection(db: D1Database, email: string) {
 }
 
 export async function handleAccountRequest(request: Request, env: CollectionEnv) {
-  const viewer = viewerFromRequest(request);
+  const viewer = await viewerFromRequest(request, env.DB);
   if (!viewer) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   try {
@@ -245,7 +231,7 @@ export async function handleAccountRequest(request: Request, env: CollectionEnv)
 }
 
 export async function handleCollectionRequest(request: Request, env: CollectionEnv) {
-  const viewer = viewerFromRequest(request);
+  const viewer = await viewerFromRequest(request, env.DB);
   if (!viewer) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   try {

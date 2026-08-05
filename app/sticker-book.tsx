@@ -11,7 +11,7 @@ import { VoiceAdd, type VoiceSavedEntry } from "./voice-add";
 type Tab = "album" | "needs" | "trade" | "profile";
 type Viewer = { name: string; email: string; signedIn: boolean };
 type Collection = Record<string, number>;
-type AccountState = "loading" | "onboarding" | "ready" | "error";
+type AccountState = "loading" | "signedOut" | "onboarding" | "ready" | "error";
 type SetupMethod = "new" | "already" | "import";
 type PackEntry = {
   id: number;
@@ -41,19 +41,23 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
   const [tradeHistory, setTradeHistory] = useState<TradeHistoryEntry[]>([]);
   const [notice, setNotice] = useState("");
   const [pendingSaves, setPendingSaves] = useState(0);
-  const [accountState, setAccountState] = useState<AccountState>(viewer.signedIn ? "loading" : "ready");
+  const [accountState, setAccountState] = useState<AccountState>("loading");
+  const [activeViewer, setActiveViewer] = useState(viewer);
   const [displayName, setDisplayName] = useState(viewer.name);
   const collectionRef = useRef<Collection>({});
   const packSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const tradeSaveQueue = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
-    if (!viewer.signedIn) return;
     async function loadAccount() {
       try {
         const accountResponse = await fetch("/api/account");
+        if (accountResponse.status === 401) { setAccountState("signedOut"); return; }
         if (!accountResponse.ok) throw new Error("Account unavailable");
         const accountData = await accountResponse.json();
+        const sessionResponse = await fetch("/api/auth/session");
+        const sessionData = await sessionResponse.json();
+        if (sessionData.viewer) setActiveViewer({ name: sessionData.viewer.displayName, email: sessionData.viewer.email, signedIn: true });
         if (accountData.profile?.displayName) setDisplayName(accountData.profile.displayName);
         if (!accountData.profile?.onboardingCompleted) {
           setAccountState("onboarding");
@@ -73,7 +77,7 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
       }
     }
     void loadAccount();
-  }, [viewer.signedIn]);
+  }, []);
 
   const allStickers = useMemo(
     () => catalogStickers.map((sticker) => ({
@@ -100,7 +104,7 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
     const previousQuantity = collectionRef.current[code] ?? 0;
     collectionRef.current = { ...collectionRef.current, [code]: safeQuantity };
     setCollection(collectionRef.current);
-    if (!viewer.signedIn) return;
+    if (!activeViewer.signedIn) return;
     setPendingSaves((current) => current + 1);
     try {
       const response = await fetch("/api/collection", {
@@ -184,7 +188,7 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
           ? "Extras"
           : "Collector Profile";
 
-  if (!viewer.signedIn) return <AccountGate />;
+  if (accountState === "signedOut") return <AccountGate />;
   if (accountState === "loading") return <AccountLoading />;
   if (accountState === "error") return <AccountError />;
   if (accountState === "onboarding") {
@@ -201,7 +205,7 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
     );
   }
 
-  const activeViewer = { ...viewer, name: displayName };
+  const displayedViewer = { ...activeViewer, name: displayName };
 
   return (
     <main className="app-shell">
@@ -271,7 +275,7 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
               onImportExtras={() => setImportExtrasOpen(true)}
             />
           ) : (
-            <ProfileView viewer={activeViewer} stats={stats} onImport={() => setImportOpen(true)} />
+            <ProfileView viewer={displayedViewer} stats={stats} onImport={() => setImportOpen(true)} />
           )}
         </section>
 
@@ -715,6 +719,20 @@ function ImportCollection({
 }
 
 function AccountGate() {
+  const [mode, setMode] = useState<"signup" | "login">("signup");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  async function submit(event: React.FormEvent) {
+    event.preventDefault(); setSaving(true); setError("");
+    try {
+      const response = await fetch(`/api/auth/${mode}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Account request failed");
+      window.location.reload();
+    } catch (accountError) { setError(accountError instanceof Error ? accountError.message : "Account request failed"); setSaving(false); }
+  }
   return (
     <main className="app-shell account-shell">
       <div className="ambient ambient-one" />
@@ -731,10 +749,13 @@ function AccountGate() {
           <h1>Every sticker has its place.</h1>
           <p>Track what you own, find what you need, and keep your trade pile ready.</p>
         </div>
-        <div className="account-actions">
-          <a className="primary-account-action" href="/signin-with-chatgpt?return_to=%2F">Create an account</a>
-          <a className="secondary-account-action" href="/signin-with-chatgpt?return_to=%2F">I already have an account</a>
-        </div>
+        <form className="account-form" onSubmit={submit}>
+          <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label>
+          <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={10} required /></label>
+          {error && <p className="import-error" role="alert">{error}</p>}
+          <button className="primary-account-action" type="submit" disabled={saving}>{saving ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}</button>
+          <button className="account-switch" type="button" onClick={() => { setMode(mode === "signup" ? "login" : "signup"); setError(""); }}>{mode === "signup" ? "I already have an account" : "Create a new account"}</button>
+        </form>
         <p className="privacy-note"><span>●</span> Your sticker collection stays private to your account.</p>
       </section>
     </main>
@@ -762,7 +783,7 @@ function AccountError() {
           <h1>We could not open your collection.</h1>
           <p>Your stickers are safe. Reload the page to try again.</p>
           <button onClick={() => window.location.reload()}>Try again</button>
-          <a href="/signout-with-chatgpt?return_to=%2F">Sign out</a>
+          <button onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.reload(); }}>Sign out</button>
         </div>
       </section>
     </main>
@@ -1299,7 +1320,6 @@ function ProfileView({
         <div className="profile-avatar">{viewer.name.slice(0, 1).toUpperCase()}</div>
         <h1>{viewer.name}</h1>
         <p>{viewer.signedIn ? viewer.email : "Sign in to save your collection across devices."}</p>
-        {!viewer.signedIn && <a href="/signin-with-chatgpt?return_to=%2F">Sign in with ChatGPT</a>}
       </div>
       <div className="profile-stats">
         <div><strong>{stats.percent}%</strong><span>Album complete</span></div>
@@ -1309,7 +1329,7 @@ function ProfileView({
         <div className="active-album-setting"><span>▣</span><div><strong>World Cup 2026</strong><small>Active album</small></div></div>
         <button onClick={onImport}><span>↧</span><div><strong>Import collection</strong><small>Paste a missing-sticker list</small></div><b>›</b></button>
       </div>
-      {viewer.signedIn && <a className="signout" href="/signout-with-chatgpt?return_to=%2F">Sign out</a>}
+      {viewer.signedIn && <button className="signout" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.reload(); }}>Sign out</button>}
     </section>
   );
 }

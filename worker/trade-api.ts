@@ -31,7 +31,7 @@ async function readHistory(db: D1Database, email: string) {
 }
 
 export async function handleTradeRequest(request: Request, env: TradeEnv) {
-  const viewer = viewerFromRequest(request);
+  const viewer = await viewerFromRequest(request, env.DB);
   if (!viewer) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   try {
