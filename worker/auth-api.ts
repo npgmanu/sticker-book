@@ -55,6 +55,25 @@ async function createSession(db: D1Database, email: string) {
   return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}`;
 }
 
+async function enforceRateLimit(db: D1Database, key: string, maximum: number, windowMinutes: number) {
+  const cutoff = new Date(Date.now() - windowMinutes * 60000).toISOString();
+  const current = await db.prepare("SELECT attempts, window_started_at AS windowStartedAt FROM auth_rate_limits WHERE rate_key = ?").bind(key).first<{ attempts: number; windowStartedAt: string }>();
+  if (!current || current.windowStartedAt < cutoff) {
+    await db.prepare("INSERT INTO auth_rate_limits (rate_key, attempts, window_started_at) VALUES (?, 1, CURRENT_TIMESTAMP) ON CONFLICT(rate_key) DO UPDATE SET attempts = 1, window_started_at = CURRENT_TIMESTAMP").bind(key).run();
+    return null;
+  }
+  if (current.attempts >= maximum) return Response.json({ error: "Too many attempts. Please wait and try again." }, { status: 429, headers: { "Retry-After": String(windowMinutes * 60) } });
+  await db.prepare("UPDATE auth_rate_limits SET attempts = attempts + 1 WHERE rate_key = ?").bind(key).run();
+  return null;
+}
+
+async function verifyPassword(db: D1Database, email: string, password: string) {
+  const user = await db.prepare("SELECT email, display_name AS displayName, password_hash AS passwordHash, password_salt AS passwordSalt FROM users WHERE email = ?")
+    .bind(email).first<{ email: string; displayName: string; passwordHash: string | null; passwordSalt: string | null }>();
+  if (!user?.passwordHash || !user.passwordSalt) return null;
+  return safeEqual(await hashPassword(password, hexToBytes(user.passwordSalt)), user.passwordHash) ? user : null;
+}
+
 export async function handleAuthRequest(request: Request, env: AuthEnv) {
   const url = new URL(request.url);
   if (url.pathname === "/api/auth/session") {
@@ -68,6 +87,55 @@ export async function handleAuthRequest(request: Request, env: AuthEnv) {
     return Response.json({ ok: true }, { headers: { "Set-Cookie": `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0` } });
   }
 
+  if (url.pathname === "/api/auth/change-password" && request.method === "POST") {
+    const viewer = await viewerFromSession(request, env.DB);
+    if (!viewer) return Response.json({ error: "Sign in required" }, { status: 401 });
+    const body = await request.json() as { currentPassword?: string; newPassword?: string };
+    if (!body.currentPassword || !body.newPassword || body.newPassword.length < 10 || body.newPassword.length > 128) return Response.json({ error: "New password must be 10 to 128 characters" }, { status: 400 });
+    if (!await verifyPassword(env.DB, viewer.email, body.currentPassword)) return Response.json({ error: "Current password is incorrect" }, { status: 401 });
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    await env.DB.prepare("UPDATE users SET password_hash = ?, password_salt = ?, updated_at = CURRENT_TIMESTAMP WHERE email = ?")
+      .bind(await hashPassword(body.newPassword, salt), bytesToHex(salt), viewer.email).run();
+    await env.DB.prepare("DELETE FROM sessions WHERE user_email = ?").bind(viewer.email).run();
+    return Response.json({ ok: true }, { headers: { "Set-Cookie": await createSession(env.DB, viewer.email) } });
+  }
+
+  if (url.pathname === "/api/auth/delete-account" && request.method === "POST") {
+    const viewer = await viewerFromSession(request, env.DB);
+    if (!viewer) return Response.json({ error: "Sign in required" }, { status: 401 });
+    const body = await request.json() as { password?: string; confirmation?: string };
+    if (body.confirmation !== "DELETE" || !body.password || !await verifyPassword(env.DB, viewer.email, body.password)) return Response.json({ error: "Password or confirmation is incorrect" }, { status: 400 });
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM trade_basket_items WHERE user_email = ?").bind(viewer.email),
+      env.DB.prepare("DELETE FROM trade_history_items WHERE history_id IN (SELECT id FROM trade_history WHERE user_email = ?)").bind(viewer.email),
+      env.DB.prepare("DELETE FROM trade_history WHERE user_email = ?").bind(viewer.email),
+      env.DB.prepare("DELETE FROM user_collections WHERE user_email = ?").bind(viewer.email),
+      env.DB.prepare("DELETE FROM sessions WHERE user_email = ?").bind(viewer.email),
+      env.DB.prepare("DELETE FROM users WHERE email = ?").bind(viewer.email),
+    ]);
+    return Response.json({ ok: true }, { headers: { "Set-Cookie": `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0` } });
+  }
+
+  if (url.pathname === "/api/auth/manual-reset" && request.method === "POST") {
+    const body = await request.json() as { email?: string; resetCode?: string; newPassword?: string };
+    const email = body.email?.trim().toLowerCase() ?? "";
+    const code = body.resetCode?.trim() ?? "";
+    const password = body.newPassword ?? "";
+    const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+    const limited = await enforceRateLimit(env.DB, `reset:${ip}:${email}`, 5, 30);
+    if (limited) return limited;
+    if (!/^\S+@\S+\.\S+$/.test(email) || code.length < 16 || password.length < 10 || password.length > 128) return Response.json({ error: "Check the email, reset code, and new password" }, { status: 400 });
+    const reset = await env.DB.prepare("SELECT reset_code AS resetCode FROM manual_password_resets WHERE user_email = ? AND expires_at > CURRENT_TIMESTAMP").bind(email).first<{ resetCode: string }>();
+    if (!reset || !safeEqual(code, reset.resetCode)) return Response.json({ error: "Reset code is invalid or expired" }, { status: 400 });
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    await env.DB.batch([
+      env.DB.prepare("UPDATE users SET password_hash = ?, password_salt = ?, updated_at = CURRENT_TIMESTAMP WHERE email = ?").bind(await hashPassword(password, salt), bytesToHex(salt), email),
+      env.DB.prepare("DELETE FROM sessions WHERE user_email = ?").bind(email),
+      env.DB.prepare("DELETE FROM manual_password_resets WHERE user_email = ?").bind(email),
+    ]);
+    return Response.json({ ok: true });
+  }
+
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
   const body = await request.json() as { email?: string; password?: string };
   const email = body.email?.trim().toLowerCase() ?? "";
@@ -76,6 +144,9 @@ export async function handleAuthRequest(request: Request, env: AuthEnv) {
   if (password.length < 10 || password.length > 128) return Response.json({ error: "Password must be 10 to 128 characters" }, { status: 400 });
 
   if (url.pathname === "/api/auth/signup") {
+    const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+    const limited = await enforceRateLimit(env.DB, `signup:${ip}`, 5, 60);
+    if (limited) return limited;
     const existing = await env.DB.prepare("SELECT email FROM users WHERE email = ?").bind(email).first();
     if (existing) return Response.json({ error: "An account already exists for this email" }, { status: 409 });
     const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -86,9 +157,11 @@ export async function handleAuthRequest(request: Request, env: AuthEnv) {
   }
 
   if (url.pathname === "/api/auth/login") {
-    const user = await env.DB.prepare("SELECT email, display_name AS displayName, password_hash AS passwordHash, password_salt AS passwordSalt FROM users WHERE email = ?")
-      .bind(email).first<{ email: string; displayName: string; passwordHash: string | null; passwordSalt: string | null }>();
-    if (!user?.passwordHash || !user.passwordSalt || !safeEqual(await hashPassword(password, hexToBytes(user.passwordSalt)), user.passwordHash)) {
+    const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+    const limited = await enforceRateLimit(env.DB, `login:${ip}:${email}`, 8, 15);
+    if (limited) return limited;
+    const user = await verifyPassword(env.DB, email, password);
+    if (!user) {
       return Response.json({ error: "Email or password is incorrect" }, { status: 401 });
     }
     return Response.json({ viewer: { email: user.email, displayName: user.displayName } }, { headers: { "Set-Cookie": await createSession(env.DB, email) } });
