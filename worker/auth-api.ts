@@ -2,7 +2,7 @@ type AuthEnv = { DB: D1Database };
 
 const SESSION_COOKIE = "sticker_session";
 const SESSION_DAYS = 30;
-const ITERATIONS = 310000;
+const ITERATIONS = 100000;
 
 function bytesToHex(bytes: Uint8Array) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
