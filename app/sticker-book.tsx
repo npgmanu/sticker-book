@@ -720,17 +720,19 @@ function ImportCollection({
 }
 
 function AccountGate() {
-  const [mode, setMode] = useState<"signup" | "login">("login");
+  const [mode, setMode] = useState<"signup" | "login" | "reset">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [resetCode, setResetCode] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setSaving(true); setError("");
     try {
-      const response = await fetch(`/api/auth/${mode}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }) });
+      const response = await fetch(`/api/auth/${mode === "reset" ? "manual-reset" : mode}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(mode === "reset" ? { email, resetCode, newPassword: password } : { email, password }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Account request failed");
+      if (mode === "reset") { setMode("login"); setPassword(""); setResetCode(""); setError("Password reset. You can sign in now."); setSaving(false); return; }
       window.location.reload();
     } catch (accountError) { setError(accountError instanceof Error ? accountError.message : "Account request failed"); setSaving(false); }
   }
@@ -752,10 +754,13 @@ function AccountGate() {
         </div>
         <form className="account-form" onSubmit={submit}>
           <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label>
-          <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} minLength={10} required /></label>
+          {mode === "reset" && <label>Reset code<input value={resetCode} onChange={(event) => setResetCode(event.target.value)} autoComplete="one-time-code" required /></label>}
+          <label>{mode === "reset" ? "New password" : "Password"}<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" || mode === "reset" ? "new-password" : "current-password"} minLength={10} required /></label>
           {error && <p className="import-error" role="alert">{error}</p>}
-          <button className="primary-account-action" type="submit" disabled={saving}>{saving ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}</button>
+          <button className="primary-account-action" type="submit" disabled={saving}>{saving ? "Please wait…" : mode === "signup" ? "Create account" : mode === "reset" ? "Reset password" : "Sign in"}</button>
           <button className="account-switch" type="button" onClick={() => { setMode(mode === "signup" ? "login" : "signup"); setError(""); }}>{mode === "signup" ? "I already have an account" : "Create a new account"}</button>
+          {mode === "login" && <button className="account-switch reset-link" type="button" onClick={() => { setMode("reset"); setError("Contact the site owner to request a one-time reset code."); }}>Forgot password?</button>}
+          {mode === "reset" && <button className="account-switch" type="button" onClick={() => { setMode("login"); setError(""); }}>Back to sign in</button>}
         </form>
         <p className="privacy-note"><span>●</span> Your sticker collection stays private to your account.</p>
       </section>
@@ -1329,8 +1334,40 @@ function ProfileView({
       <div className="settings-list">
         <div className="active-album-setting"><span>▣</span><div><strong>World Cup 2026</strong><small>Active album</small></div></div>
         <button onClick={onImport}><span>↧</span><div><strong>Import collection</strong><small>Paste a missing-sticker list</small></div><b>›</b></button>
+        <AccountTools />
+        <a className="settings-link" href="/privacy"><span>i</span><div><strong>Privacy</strong><small>How your account data is used</small></div><b>›</b></a>
       </div>
       {viewer.signedIn && <button className="signout" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.reload(); }}>Sign out</button>}
     </section>
   );
+}
+
+function AccountTools() {
+  const [panel, setPanel] = useState<"none" | "password" | "delete">("none");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [deletePassword, setDeletePassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  async function changePassword(event: React.FormEvent) {
+    event.preventDefault(); setSaving(true); setMessage("");
+    const response = await fetch("/api/auth/change-password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ currentPassword, newPassword }) });
+    const data = await response.json(); setSaving(false);
+    if (!response.ok) { setMessage(data.error ?? "Password could not be changed"); return; }
+    setMessage("Password changed successfully."); setCurrentPassword(""); setNewPassword("");
+  }
+  async function deleteAccount(event: React.FormEvent) {
+    event.preventDefault(); setSaving(true); setMessage("");
+    const response = await fetch("/api/auth/delete-account", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: deletePassword, confirmation }) });
+    const data = await response.json(); setSaving(false);
+    if (!response.ok) { setMessage(data.error ?? "Account could not be deleted"); return; }
+    window.location.reload();
+  }
+  return <>
+    <button onClick={() => { setPanel(panel === "password" ? "none" : "password"); setMessage(""); }}><span>⌁</span><div><strong>Change password</strong><small>Update your account password</small></div><b>›</b></button>
+    {panel === "password" && <form className="account-settings-form" onSubmit={changePassword}><input type="password" placeholder="Current password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /><input type="password" placeholder="New password, 10+ characters" minLength={10} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required /><button disabled={saving}>{saving ? "Saving…" : "Change password"}</button>{message && <p>{message}</p>}</form>}
+    <button className="danger-setting" onClick={() => { setPanel(panel === "delete" ? "none" : "delete"); setMessage(""); }}><span>!</span><div><strong>Delete account</strong><small>Permanently remove your data</small></div><b>›</b></button>
+    {panel === "delete" && <form className="account-settings-form danger-form" onSubmit={deleteAccount}><p>This permanently deletes your account, collection, and trade history.</p><input type="password" placeholder="Password" value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)} required /><input placeholder="Type DELETE" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required /><button disabled={saving || confirmation !== "DELETE"}>{saving ? "Deleting…" : "Delete account forever"}</button>{message && <p>{message}</p>}</form>}
+  </>;
 }
