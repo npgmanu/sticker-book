@@ -87,6 +87,7 @@ export const tradeHistoryItems = sqliteTable(
     historyId: text("history_id").notNull().references(() => tradeHistory.id, { onDelete: "cascade" }),
     stickerId: text("sticker_id").notNull().references(() => stickers.id),
     quantity: integer("quantity").notNull(),
+    direction: text("direction", { enum: ["incoming", "outgoing"] }).notNull().default("outgoing"),
   },
   (table) => [primaryKey({ columns: [table.historyId, table.stickerId] })],
 );
