@@ -9,6 +9,8 @@ export const users = sqliteTable("users", {
   setupMethod: text("setup_method"),
   passwordHash: text("password_hash"),
   passwordSalt: text("password_salt"),
+  isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
+  isDisabled: integer("is_disabled", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
