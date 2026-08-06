@@ -8,9 +8,10 @@ import { TradeCompare } from "./trade-compare";
 import { TradeBasket, TradeHistory, type TradeHistoryEntry } from "./trade-basket";
 import { VoiceAdd, type VoiceSavedEntry } from "./voice-add";
 import { FlagIcon } from "./flag-icon";
+import { AdminDashboard } from "./admin-dashboard";
 
 type Tab = "album" | "needs" | "trade" | "profile";
-type Viewer = { name: string; email: string; signedIn: boolean };
+type Viewer = { name: string; email: string; signedIn: boolean; isAdmin?: boolean };
 type Collection = Record<string, number>;
 type AccountState = "loading" | "signedOut" | "onboarding" | "ready" | "error";
 type SetupMethod = "new" | "already" | "import";
@@ -58,7 +59,7 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
         const accountData = await accountResponse.json();
         const sessionResponse = await fetch("/api/auth/session");
         const sessionData = await sessionResponse.json();
-        if (sessionData.viewer) setActiveViewer({ name: sessionData.viewer.displayName, email: sessionData.viewer.email, signedIn: true });
+        if (sessionData.viewer) setActiveViewer({ name: sessionData.viewer.displayName, email: sessionData.viewer.email, signedIn: true, isAdmin: Boolean(sessionData.viewer.isAdmin) });
         if (accountData.profile?.displayName) setDisplayName(accountData.profile.displayName);
         if (!accountData.profile?.onboardingCompleted) {
           setAccountState("onboarding");
@@ -1342,6 +1343,7 @@ function ProfileView({
         <div className="active-album-setting"><span>▣</span><div><strong>World Cup 2026</strong><small>Active album</small></div></div>
         <button onClick={onImport}><span>↧</span><div><strong>Import collection</strong><small>Paste a missing-sticker list</small></div><b>›</b></button>
         <AccountTools />
+        {viewer.isAdmin && <AdminDashboard />}
         <a className="settings-link" href="/privacy"><span>i</span><div><strong>Privacy</strong><small>How your account data is used</small></div><b>›</b></a>
       </div>
       {viewer.signedIn && <button className="signout" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.reload(); }}>Sign out</button>}
