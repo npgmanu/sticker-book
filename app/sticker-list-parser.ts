@@ -21,23 +21,44 @@ export type ExtrasListParseResult = {
 };
 
 const extraAliases: Record<string, string[]> = {
-  USA: ["America", "United States", "United States of America", "US", "U S A"],
-  FWC: ["Introduction", "FIFA Museum", "Opening Page", "Opening Pages", "F W C"],
-  KOR: ["South Korea", "Korea"],
-  BIH: ["Bosnia", "Bosnia and Herzegovina"],
-  TUR: ["Turkey"],
-  CIV: ["Ivory Coast", "Cote d Ivoire", "Cote d'Ivoire"],
-  NED: ["Holland"],
-  IRN: ["Iran"],
-  CPV: ["Cape Verde"],
-  KSA: ["Saudi"],
-  COD: ["DR Congo", "Democratic Republic of the Congo", "Congo"],
+  FWC: ["Introduction", "Intro", "FIFA Museum", "FIFA World Cup", "World Cup", "Opening Page", "Opening Pages", "Front Matter", "F W C"],
+  MEX: ["México", "MX"],
+  RSA: ["Republic of South Africa", "S Africa", "SouthAfrica", "ZAF"],
+  KOR: ["South Korea", "Korea", "Republic of Korea", "Korean Republic", "ROK", "KR"],
+  CZE: ["Czech Republic", "Czech"],
+  CAN: ["CA"],
+  BIH: ["Bosnia", "Bosnia and Herzegovina", "Bosnia Herzegovina", "B and H", "BA"],
+  SUI: ["Swiss", "Switzerland", "Suisse", "Schweiz", "Svizzera", "CHE", "SWI", "CH"],
+  BRA: ["Brasil", "BR"],
+  MAR: ["Maroc", "MA"],
+  HAI: ["Haiti", "HT"],
+  SCO: ["Scottish"],
+  USA: ["America", "United States", "United States of America", "US", "U S A", "U.S.A."],
+  AUS: ["AU"],
+  TUR: ["Turkey", "Turkiye", "TR"],
+  GER: ["Deutschland", "DE"],
+  CUW: ["Curacao", "Curaçao", "CUR", "CW"],
+  CIV: ["Ivory Coast", "Cote d Ivoire", "Cote d'Ivoire", "Côte d'Ivoire", "Côte d’Ivoire", "Cote dIvoire", "IC"],
+  NED: ["Holland", "The Netherlands", "Dutch", "NLD", "NL"],
+  JPN: ["Nippon", "JP"],
+  IRN: ["Iran", "Islamic Republic of Iran", "IR"],
+  NZL: ["NZ"],
+  CPV: ["Cape Verde", "CaboVerde", "CV"],
+  KSA: ["Saudi", "Kingdom of Saudi Arabia", "SAU"],
+  FRA: ["French", "FR"],
+  ENG: ["English"],
+  COD: ["DR Congo", "DRC", "Congo DR", "Congo-Kinshasa", "Democratic Republic of Congo", "Democratic Republic of the Congo", "Congo", "CD"],
+  POR: ["PT"],
+  ARG: ["AR"],
+  AUT: ["AT"],
+  CRO: ["HR"],
 };
 
 const pasteStopWords = new Set([
-  "a", "and", "available", "duplicates", "extras", "for", "give", "has", "have", "i", "list", "me", "my",
-  "need", "needs", "numbers", "of", "stickers", "team", "the", "their", "they", "to", "trade", "want", "wants",
-  "what", "you", "your",
+  "a", "also", "and", "available", "can", "could", "duplicates", "extras", "for", "from", "get", "give", "giving",
+  "got", "has", "have", "here", "i", "list", "looking", "me", "my", "need", "needed", "needs", "numbers", "of",
+  "receive", "send", "stickers", "team", "the", "their", "them", "they", "to", "trade", "want", "wanting", "wants",
+  "what", "with", "you", "your",
 ]);
 
 function normalizeWords(value: string) {
@@ -48,6 +69,14 @@ function normalizeWords(value: string) {
     .replace(/&/g, " and ")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function normalizeSearchLine(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ");
 }
 
 function editDistance(left: string, right: string) {
@@ -127,11 +156,12 @@ export function parseStickerList(value: string): StickerListParseResult {
     .map((entry) => ({
       ...entry,
       pattern: entry.normalized.split(/\s+/).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^A-Za-z0-9]*"),
+      shortAlias: entry.normalized.replace(/\s/g, "").length <= 3,
     }))
     .sort((left, right) => right.pattern.length - left.pattern.length);
 
   value.split(/\r?\n/).forEach((rawLine, lineIndex) => {
-    let line = rawLine.trim();
+    let line = normalizeSearchLine(rawLine.trim());
     if (!line) return;
     const standaloneZero = line.match(/^#?00(?=\s*[,;]|$)/);
     if (standaloneZero) {
@@ -139,7 +169,10 @@ export function parseStickerList(value: string): StickerListParseResult {
       line = line.slice(standaloneZero[0].length).replace(/^[\s,;]+/, "");
       if (!line) return;
     }
-    const exactMatches = exactPatterns.flatMap((entry) => Array.from(line.matchAll(new RegExp(`(?:^|[^A-Za-z])(${entry.pattern})(?=$|[^A-Za-z])`, "gi"))).map((match) => {
+    const exactMatches = exactPatterns.flatMap((entry) => Array.from(line.matchAll(new RegExp(
+      `(?:^|[^a-z])(${entry.pattern})${entry.shortAlias ? "(?=\\s*[-:#]?\\s*#?\\d)" : "(?=$|[^a-z])"}`,
+      "gi",
+    ))).map((match) => {
       const aliasOffset = match[0].length - match[1].length;
       return { alias: match[1], index: (match.index ?? 0) + aliasOffset, length: match[1].length, section: entry.section };
     }));
