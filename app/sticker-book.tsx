@@ -151,7 +151,7 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
     return { previousQuantity, nextQuantity };
   }
 
-  async function basketAction(action: "basket_adjust" | "clear" | "complete" | "undo" | "traded_one", data: Record<string, unknown> = {}) {
+  async function basketAction(action: "basket_adjust" | "clear" | "complete" | "complete_comparison" | "undo" | "traded_one", data: Record<string, unknown> = {}) {
     try {
       const operation = tradeSaveQueue.current.then(async () => {
         const response = await fetch("/api/trades", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, ...data }) });
@@ -175,7 +175,12 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
   async function clearBasket() { await basketAction("clear"); }
   async function tradedOne(code: string) { const result = await basketAction("traded_one", { code }); if (result) setNotice(`${code} traded. One extra removed.`); }
   async function completeTrade() { const result = await basketAction("complete"); return result?.completed ?? null; }
-  async function undoTrade(historyId: string) { const result = await basketAction("undo", { historyId }); if (result) setNotice("Trade undone. Extras restored."); return Boolean(result); }
+  async function completeComparedTrade(incoming: string[], outgoing: string[]) {
+    const result = await basketAction("complete_comparison", { incoming, outgoing });
+    if (result) setNotice(`${result.completed.received} added and ${result.completed.given} traded.`);
+    return result?.completed ?? null;
+  }
+  async function undoTrade(historyId: string) { const result = await basketAction("undo", { historyId }); if (result) setNotice("Trade undone. Your collection was restored."); return Boolean(result); }
 
   const basketTotal = Object.values(basket).reduce((sum, quantity) => sum + quantity, 0);
 
@@ -260,6 +265,7 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
               tradeHistory={tradeHistory}
               onBasketAdjust={adjustBasket}
               onTradedOne={tradedOne}
+              onCompleteComparedTrade={completeComparedTrade}
               onOpenBasket={() => setBasketOpen(true)}
             />
           ) : tab === "trade" ? (
@@ -272,6 +278,7 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
               tradeHistory={tradeHistory}
               onBasketAdjust={adjustBasket}
               onTradedOne={tradedOne}
+              onCompleteComparedTrade={completeComparedTrade}
               onOpenBasket={() => setBasketOpen(true)}
               onImportExtras={() => setImportExtrasOpen(true)}
             />
@@ -1165,7 +1172,7 @@ function SectionTurner({
   );
 }
 
-function ListView({ kind, stickers, collection, setQuantity, basket, tradeHistory, onBasketAdjust, onTradedOne, onOpenBasket, onImportExtras }: { kind: "needs" | "trade"; stickers: { section: AlbumSection; number: number; code: string; displayCode: string }[]; collection: Collection; setQuantity: (code: string, quantity: number) => void; basket: Collection; tradeHistory: TradeHistoryEntry[]; onBasketAdjust: (code: string, delta: 1 | -1) => Promise<void>; onTradedOne: (code: string) => Promise<void>; onOpenBasket: () => void; onImportExtras?: () => void }) {
+function ListView({ kind, stickers, collection, setQuantity, basket, tradeHistory, onBasketAdjust, onTradedOne, onCompleteComparedTrade, onOpenBasket, onImportExtras }: { kind: "needs" | "trade"; stickers: { section: AlbumSection; number: number; code: string; displayCode: string }[]; collection: Collection; setQuantity: (code: string, quantity: number) => void; basket: Collection; tradeHistory: TradeHistoryEntry[]; onBasketAdjust: (code: string, delta: 1 | -1) => Promise<void>; onTradedOne: (code: string) => Promise<void>; onCompleteComparedTrade: (incoming: string[], outgoing: string[]) => Promise<{ id: string; received: number; given: number; total: number } | null>; onOpenBasket: () => void; onImportExtras?: () => void }) {
   const [actionMessage, setActionMessage] = useState("");
   const [compareOpen, setCompareOpen] = useState(false);
   const isNeeds = kind === "needs";
@@ -1305,7 +1312,7 @@ function ListView({ kind, stickers, collection, setQuantity, basket, tradeHistor
         )}
       </div>
       {!isNeeds && <TradeHistory history={tradeHistory} />}
-      {compareOpen && <TradeCompare collection={collection} basket={basket} onAddToBasket={(code) => void onBasketAdjust(code, 1)} onOpenBasket={onOpenBasket} onClose={() => setCompareOpen(false)} />}
+      {compareOpen && <TradeCompare collection={collection} basket={basket} onCompleteTrade={onCompleteComparedTrade} onClose={() => setCompareOpen(false)} />}
       {actionMessage && <div className="list-action-toast" role="status">✓ {actionMessage}</div>}
     </section>
   );

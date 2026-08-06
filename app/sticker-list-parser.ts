@@ -4,6 +4,7 @@ export type StickerListParseResult = {
   codes: string[];
   groups: { section: AlbumSection; numbers: number[] }[];
   issues: string[];
+  corrections: string[];
 };
 
 export type ExtrasListItem = {
@@ -33,18 +34,101 @@ const extraAliases: Record<string, string[]> = {
   COD: ["DR Congo", "Democratic Republic of the Congo", "Congo"],
 };
 
+const pasteStopWords = new Set([
+  "a", "and", "available", "duplicates", "extras", "for", "give", "has", "have", "i", "list", "me", "my",
+  "need", "needs", "numbers", "of", "stickers", "team", "the", "their", "they", "to", "trade", "want", "wants",
+  "what", "you", "your",
+]);
+
+function normalizeWords(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function editDistance(left: string, right: string) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    let diagonal = previous[0];
+    previous[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const above = previous[rightIndex];
+      previous[rightIndex] = Math.min(
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + 1,
+        diagonal + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+      diagonal = above;
+    }
+  }
+  return previous[right.length];
+}
+
+function fuzzySectionFromLine(line: string, aliases: { alias: string; normalized: string; section: AlbumSection }[]) {
+  const firstNumber = line.search(/\d/);
+  if (firstNumber < 0) return null;
+  const words = normalizeWords(line.slice(0, firstNumber)).split(/\s+/).filter((word) => word && !pasteStopWords.has(word));
+  if (!words.length) return null;
+  const phrases = new Set<string>();
+  for (let start = 0; start < words.length; start += 1) {
+    for (let length = 1; length <= Math.min(6, words.length - start); length += 1) {
+      phrases.add(words.slice(start, start + length).join(""));
+    }
+  }
+
+  const bestBySection = new Map<string, { alias: string; phrase: string; distance: number; section: AlbumSection }>();
+  aliases.forEach(({ alias, normalized, section }) => {
+    const target = normalized.replace(/\s/g, "");
+    phrases.forEach((phrase) => {
+      if (Math.abs(phrase.length - target.length) > Math.max(2, Math.floor(target.length * 0.25))) return;
+      const distance = editDistance(phrase, target);
+      const allowed = target.length <= 3 ? 1 : target.length <= 7 ? 1 : Math.max(2, Math.floor(target.length * 0.2));
+      if (distance > allowed) return;
+      const current = bestBySection.get(section.code);
+      if (!current || distance < current.distance || (distance === current.distance && target.length > current.alias.length)) {
+        bestBySection.set(section.code, { alias, phrase, distance, section });
+      }
+    });
+  });
+  const ranked = Array.from(bestBySection.values()).sort((left, right) => left.distance - right.distance || right.alias.length - left.alias.length);
+  if (!ranked.length || (ranked[1] && ranked[0].distance === ranked[1].distance && ranked[0].alias.length === ranked[1].alias.length)) return null;
+  return ranked[0];
+}
+
+function numbersFromSegment(segment: string) {
+  const withoutQuantities = segment.replace(/(\d)\s*[x×]\s*\d+/gi, "$1");
+  const numbers: number[] = [];
+  for (const match of withoutQuantities.matchAll(/#?(\d{1,4})(?:\s*[-–—]\s*#?(\d{1,4}))?/g)) {
+    const start = Number(match[1]);
+    const end = match[2] ? Number(match[2]) : start;
+    if (match[2] && end >= start && end - start <= 30) {
+      for (let number = start; number <= end; number += 1) numbers.push(number);
+    } else {
+      numbers.push(start);
+    }
+  }
+  return numbers;
+}
+
 export function parseStickerList(value: string): StickerListParseResult {
   const aliases = albumSections.flatMap((section) =>
     [section.code, section.name, ...(extraAliases[section.code] ?? [])]
-      .map((alias) => ({ alias, section })),
+      .map((alias) => ({ alias, normalized: normalizeWords(alias), section })),
   );
-  const aliasMap = new Map(aliases.map(({ alias, section }) => [alias.toLowerCase(), section]));
-  const aliasPattern = Array.from(aliasMap.keys())
-    .sort((left, right) => right.length - left.length)
-    .map((alias) => alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("|");
   const recognized = new Set<string>();
   const issues: string[] = [];
+  const corrections = new Set<string>();
+
+  const exactPatterns = aliases
+    .map((entry) => ({
+      ...entry,
+      pattern: entry.normalized.split(/\s+/).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^A-Za-z0-9]*"),
+    }))
+    .sort((left, right) => right.pattern.length - left.pattern.length);
 
   value.split(/\r?\n/).forEach((rawLine, lineIndex) => {
     let line = rawLine.trim();
@@ -55,50 +139,41 @@ export function parseStickerList(value: string): StickerListParseResult {
       line = line.slice(standaloneZero[0].length).replace(/^[\s,;]+/, "");
       if (!line) return;
     }
-    const matches = Array.from(line.matchAll(new RegExp(`(?:^|[^A-Za-z])(${aliasPattern})(?=\\s*[-:,]?\\s*\\d)`, "gi")))
-      .map((match) => {
-        const aliasOffset = match[0].toLowerCase().lastIndexOf(match[1].toLowerCase());
-        return { alias: match[1], index: (match.index ?? 0) + aliasOffset };
-      });
+    const exactMatches = exactPatterns.flatMap((entry) => Array.from(line.matchAll(new RegExp(`(?:^|[^A-Za-z])(${entry.pattern})(?=$|[^A-Za-z])`, "gi"))).map((match) => {
+      const aliasOffset = match[0].length - match[1].length;
+      return { alias: match[1], index: (match.index ?? 0) + aliasOffset, length: match[1].length, section: entry.section };
+    }));
+    const matches = exactMatches
+      .sort((left, right) => left.index - right.index || right.length - left.length)
+      .filter((match, index, all) => !all.slice(0, index).some((kept) => match.index < kept.index + kept.length));
 
     if (!matches.length) {
-      issues.push(`Line ${lineIndex + 1}: “${line}” could not be matched`);
-      return;
+      const fuzzy = fuzzySectionFromLine(line, aliases);
+      if (!fuzzy) {
+        issues.push(`Line ${lineIndex + 1}: “${line}” could not be matched`);
+        return;
+      }
+      matches.push({ alias: fuzzy.phrase, index: 0, length: line.search(/\d/), section: fuzzy.section });
+      corrections.add(`${fuzzy.phrase.toUpperCase()} → ${fuzzy.section.name}`);
     }
 
-    const prefix = line.slice(0, matches[0].index).replace(/[\s,:;-]/g, "");
-    if (prefix) issues.push(`Line ${lineIndex + 1}: “${prefix}” was not recognized`);
-
     matches.forEach((match, matchIndex) => {
-      const section = aliasMap.get(match.alias.toLowerCase());
-      if (!section) return;
-      const start = match.index + match.alias.length;
+      const section = match.section;
+      const start = match.index + match.length;
       const end = matchIndex < matches.length - 1 ? matches[matchIndex + 1].index : line.length;
-      const segment = line.slice(start, end).replace(/^[\s,:;-]+/, "").trim();
-      const tokens = segment.split(/[\s,;]+/).filter(Boolean);
-
-      if (!tokens.length) {
+      const segment = line.slice(start, end);
+      const numbers = numbersFromSegment(segment);
+      if (!numbers.length) {
         issues.push(`Line ${lineIndex + 1}: no sticker numbers found after ${section.code}`);
         return;
       }
-
-      let foundNumber = false;
-      tokens.forEach((token) => {
-        const cleanToken = token.replace(/^#/, "");
-        if (/^x\d+$/i.test(cleanToken)) return;
-        if (!/^\d+$/.test(cleanToken)) {
-          issues.push(`Line ${lineIndex + 1}: “${token}” after ${section.code} was not recognized`);
-          return;
-        }
-        foundNumber = true;
-        const number = Number(cleanToken);
+      numbers.forEach((number) => {
         if (!hasStickerNumber(section.code, number)) {
           issues.push(`Line ${lineIndex + 1}: ${section.code} ${number} does not exist`);
           return;
         }
         recognized.add(makeStickerCode(section.code, number));
       });
-      if (!foundNumber) issues.push(`Line ${lineIndex + 1}: no sticker numbers found after ${section.code}`);
     });
   });
 
@@ -115,6 +190,7 @@ export function parseStickerList(value: string): StickerListParseResult {
     codes: groups.flatMap((group) => group.numbers.map((number) => makeStickerCode(group.section.code, number))),
     groups,
     issues,
+    corrections: Array.from(corrections),
   };
 }
 

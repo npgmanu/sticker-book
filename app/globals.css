@@ -752,3 +752,40 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .extras-merge-note strong { font-size: 11px; }
 .extras-merge-note p { margin: 4px 0 0; color: #52685a; font-size: 10px; line-height: 1.45; }
 .extras-merge-note small { margin-top: 6px; color: var(--pitch); font-size: 9px; font-weight: 850; }
+
+/* Two-sided compare flow and tolerant Smart Paste feedback. */
+.smart-match-note { min-height: 62px; padding: 10px 12px; display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 10px; border: 1px solid #b9ceb8; border-radius: 10px; color: #244d35; background: #edf6e8; }
+.smart-match-note > span { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; color: var(--pitch); background: var(--lime); font-size: 16px; font-weight: 950; }
+.smart-match-note div { min-width: 0; display: flex; flex-direction: column; }
+.smart-match-note strong { font-size: 10px; }
+.smart-match-note small { margin-top: 4px; overflow: hidden; color: #587061; font-size: 8px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.compare-result-card.incoming > header p { color: var(--pitch); }
+.compare-result-card.incoming > header > span, .compare-result-card.incoming .compare-result-groups > div > strong { background: var(--pitch); }
+.compare-result-card.outgoing > header p { color: #a24e2b; }
+.compare-result-card.outgoing > header > span, .compare-result-card.outgoing .compare-result-groups > div > strong { background: #ad562d; }
+.compare-result-card > header > span { width: 42px; border-radius: 18px; font-size: 9px; }
+.compare-select-numbers { display: flex; flex-wrap: wrap; gap: 5px; }
+.compare-select-numbers button { min-width: 43px; min-height: 40px; padding: 0 7px; border: 1px solid #c9cec7; border-radius: 8px; color: #667169; background: #f3f4ef; font-family: Georgia, serif; font-size: 12px; font-weight: 900; cursor: pointer; }
+.compare-select-numbers button.selected { color: white; border-color: var(--pitch); background: var(--pitch); }
+.compare-result-card.outgoing .compare-select-numbers button.selected { border-color: #ad562d; background: #ad562d; }
+.compare-select-numbers i { margin-left: 2px; font-family: Arial, sans-serif; font-size: 9px; font-style: normal; }
+.review-complete-trade { width: 100%; min-height: 56px; padding: 0 15px; display: flex; align-items: center; justify-content: center; gap: 10px; border: 0; border-radius: 9px; color: white; background: linear-gradient(135deg, #a6502c, #793619); box-shadow: 0 3px 0 #d5a384; font-size: 11px; font-weight: 950; cursor: pointer; }
+.review-complete-trade span { font-size: 21px; line-height: 1; }
+.review-complete-trade:disabled { opacity: .4; box-shadow: none; cursor: not-allowed; }
+.compare-actions { grid-template-columns: 1fr 90px; }
+.compare-actions button:nth-child(2) { color: #8d4728; border: 1px solid #cfa88f; background: white; }
+.compare-review { display: grid; gap: 12px; }
+.trade-review-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.trade-review-summary > div { min-height: 104px; padding: 12px 8px; display: grid; grid-template-columns: 30px 1fr; align-items: center; border: 1px solid #cbd4ca; border-radius: 10px; background: white; }
+.trade-review-summary > div.outgoing { border-color: #dcc0ad; }
+.trade-review-summary span { width: 29px; height: 34px; display: grid; grid-row: 1 / 3; place-items: center; border-radius: 8px; color: white; background: var(--pitch); font-size: 17px; font-weight: 950; }
+.trade-review-summary .outgoing span { background: #ad562d; }
+.trade-review-summary strong { font-family: Georgia, serif; font-size: 28px; }
+.trade-review-summary small { color: var(--muted); font-size: 8px; line-height: 1.3; }
+.compare-confirm-actions { display: grid; grid-template-columns: 90px 1fr; gap: 8px; }
+.compare-confirm-actions button { min-height: 52px; border: 1px solid #cfa88f; border-radius: 8px; color: #8d4728; background: white; font-size: 10px; font-weight: 900; cursor: pointer; }
+.compare-confirm-actions button:last-child { color: white; border-color: #8e4324; background: #9f4927; }
+.compare-confirm-actions button:disabled { opacity: .45; cursor: not-allowed; }
+.compare-error { margin: 0; padding: 10px; border-left: 4px solid #a53f2a; color: #7d3524; background: #fae3da; font-size: 10px; line-height: 1.45; }
+.compare-complete { min-height: calc(100svh - 112px); }
+.compare-complete p strong { color: var(--pitch); }

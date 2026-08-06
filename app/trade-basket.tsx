@@ -9,7 +9,7 @@ export type TradeHistoryEntry = {
   label: string;
   totalStickers: number;
   completedAt: string;
-  items: { code: string; quantity: number }[];
+  items: { code: string; quantity: number; direction?: "incoming" | "outgoing" }[];
 };
 
 type Collection = Record<string, number>;
@@ -98,6 +98,6 @@ export function TradeBasket({
 
 export function TradeHistory({ history }: { history: TradeHistoryEntry[] }) {
   return (
-    <details className="trade-history"><summary><span>⇄</span><strong>Trade History</strong><small>{history.length}</small><b>⌄</b></summary>{history.length ? <div className="trade-history-list">{history.slice(0, 5).map((entry) => <article key={entry.id}><span>⇄</span><div><strong>{entry.label}</strong><small>{new Date(`${entry.completedAt.replace(" ", "T")}Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} · {entry.items.length} unique</small><em>{entry.items.slice(0, 4).map((item) => `${stickerDisplayCode(item.code)} x${item.quantity}`).join(" · ")}{entry.items.length > 4 ? " · …" : ""}</em></div><b>{entry.totalStickers}</b></article>)}</div> : <p className="empty-history">Completed trades will appear here.</p>}</details>
+    <details className="trade-history"><summary><span>⇄</span><strong>Trade History</strong><small>{history.length}</small><b>⌄</b></summary>{history.length ? <div className="trade-history-list">{history.slice(0, 5).map((entry) => <article key={entry.id}><span>⇄</span><div><strong>{entry.label}</strong><small>{new Date(`${entry.completedAt.replace(" ", "T")}Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} · {entry.items.length} unique</small><em>{entry.items.slice(0, 4).map((item) => `${item.direction === "incoming" ? "↓" : "↑"} ${stickerDisplayCode(item.code)}${item.quantity > 1 ? ` x${item.quantity}` : ""}`).join(" · ")}{entry.items.length > 4 ? " · …" : ""}</em></div><b>{entry.totalStickers}</b></article>)}</div> : <p className="empty-history">Completed trades will appear here.</p>}</details>
   );
 }
