@@ -22,9 +22,9 @@ async function readHistory(db: D1Database, email: string) {
   const entries = [];
   for (const history of historyResult.results) {
     const itemResult = await db
-      .prepare("SELECT sticker_id AS code, quantity FROM trade_history_items WHERE history_id = ? ORDER BY sticker_id")
+      .prepare("SELECT sticker_id AS code, quantity, direction FROM trade_history_items WHERE history_id = ? ORDER BY direction, sticker_id")
       .bind(history.id)
-      .all<{ code: string; quantity: number }>();
+      .all<{ code: string; quantity: number; direction: "incoming" | "outgoing" }>();
     entries.push({ ...history, items: itemResult.results });
   }
   return entries;
@@ -45,10 +45,12 @@ export async function handleTradeRequest(request: Request, env: TradeEnv) {
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
 
     const body = (await request.json()) as {
-      action?: "basket_adjust" | "clear" | "complete" | "undo" | "traded_one";
+      action?: "basket_adjust" | "clear" | "complete" | "complete_comparison" | "undo" | "traded_one";
       code?: string;
       delta?: number;
       historyId?: string;
+      incoming?: string[];
+      outgoing?: string[];
     };
     const code = body.code?.trim().toUpperCase() ?? "";
     const validCodes = new Set(catalogStickers.map((sticker) => sticker.code));
@@ -116,6 +118,48 @@ export async function handleTradeRequest(request: Request, env: TradeEnv) {
       return Response.json({ basket: {} });
     }
 
+    if (body.action === "complete_comparison") {
+      if (!Array.isArray(body.incoming) || !Array.isArray(body.outgoing)) {
+        return Response.json({ error: "Choose the stickers for both sides of the trade" }, { status: 400 });
+      }
+      const incoming = Array.from(new Set(body.incoming.map((item) => String(item).trim().toUpperCase())));
+      const outgoing = Array.from(new Set(body.outgoing.map((item) => String(item).trim().toUpperCase())));
+      if (!incoming.length && !outgoing.length) return Response.json({ error: "Choose at least one sticker" }, { status: 400 });
+      if (incoming.length > 250 || outgoing.length > 250 || [...incoming, ...outgoing].some((item) => !validCodes.has(item))) {
+        return Response.json({ error: "The trade contains an invalid sticker" }, { status: 400 });
+      }
+      if (incoming.some((item) => outgoing.includes(item))) {
+        return Response.json({ error: "A sticker cannot be on both sides of the same trade" }, { status: 400 });
+      }
+
+      const [currentCollection, currentBasket] = await Promise.all([
+        readCollection(env.DB, viewer.email),
+        readBasket(env.DB, viewer.email),
+      ]);
+      if (incoming.some((item) => (currentCollection[item] ?? 0) !== 0)) {
+        return Response.json({ error: "One of the incoming stickers is no longer in Needs" }, { status: 409 });
+      }
+      if (outgoing.some((item) => Math.max(0, (currentCollection[item] ?? 0) - 1 - (currentBasket[item] ?? 0)) < 1)) {
+        return Response.json({ error: "One of the outgoing stickers is no longer available in Extras" }, { status: 409 });
+      }
+
+      const historyId = crypto.randomUUID();
+      const total = incoming.length + outgoing.length;
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO trade_history (id, user_email, label, total_stickers) VALUES (?, ?, 'Compared Trade', ?)").bind(historyId, viewer.email, total),
+        ...incoming.map((item) => env.DB.prepare("INSERT INTO trade_history_items (history_id, sticker_id, quantity, direction) VALUES (?, ?, 1, 'incoming')").bind(historyId, item)),
+        ...outgoing.map((item) => env.DB.prepare("INSERT INTO trade_history_items (history_id, sticker_id, quantity, direction) VALUES (?, ?, 1, 'outgoing')").bind(historyId, item)),
+        ...incoming.map((item) => env.DB.prepare("UPDATE user_collections SET quantity = 1, updated_at = CURRENT_TIMESTAMP WHERE user_email = ? AND sticker_id = ?").bind(viewer.email, item)),
+        ...outgoing.map((item) => env.DB.prepare("UPDATE user_collections SET quantity = MAX(1, quantity - 1), updated_at = CURRENT_TIMESTAMP WHERE user_email = ? AND sticker_id = ?").bind(viewer.email, item)),
+      ]);
+      return Response.json({
+        basket: currentBasket,
+        collection: await readCollection(env.DB, viewer.email),
+        history: await readHistory(env.DB, viewer.email),
+        completed: { id: historyId, received: incoming.length, given: outgoing.length, total },
+      });
+    }
+
     if (body.action === "complete") {
       const basketResult = await env.DB
         .prepare(
@@ -158,11 +202,13 @@ export async function handleTradeRequest(request: Request, env: TradeEnv) {
         .first<{ id: string }>();
       if (!history) return Response.json({ error: "This trade can no longer be undone" }, { status: 409 });
       const items = await env.DB
-        .prepare("SELECT sticker_id AS code, quantity FROM trade_history_items WHERE history_id = ?")
+        .prepare("SELECT sticker_id AS code, quantity, direction FROM trade_history_items WHERE history_id = ?")
         .bind(historyId)
-        .all<{ code: string; quantity: number }>();
+        .all<{ code: string; quantity: number; direction: "incoming" | "outgoing" }>();
       await env.DB.batch([
-        ...items.results.map((item) => env.DB.prepare("UPDATE user_collections SET quantity = MIN(99, quantity + ?), updated_at = CURRENT_TIMESTAMP WHERE user_email = ? AND sticker_id = ?").bind(item.quantity, viewer.email, item.code)),
+        ...items.results.map((item) => item.direction === "incoming"
+          ? env.DB.prepare("UPDATE user_collections SET quantity = MAX(0, quantity - ?), updated_at = CURRENT_TIMESTAMP WHERE user_email = ? AND sticker_id = ?").bind(item.quantity, viewer.email, item.code)
+          : env.DB.prepare("UPDATE user_collections SET quantity = MIN(99, quantity + ?), updated_at = CURRENT_TIMESTAMP WHERE user_email = ? AND sticker_id = ?").bind(item.quantity, viewer.email, item.code)),
         env.DB.prepare("DELETE FROM trade_history_items WHERE history_id = ?").bind(historyId),
         env.DB.prepare("DELETE FROM trade_history WHERE id = ? AND user_email = ?").bind(historyId, viewer.email),
       ]);
