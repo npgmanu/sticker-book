@@ -170,9 +170,9 @@ export async function handleTradeRequest(request: Request, env: TradeEnv) {
         )
         .bind(viewer.email)
         .all<{ code: string; reserved: number; owned: number }>();
-      if (!basketResult.results.length) return Response.json({ error: "The Trade Basket is empty" }, { status: 400 });
+      if (!basketResult.results.length) return Response.json({ error: "The Trade Pile is empty" }, { status: 400 });
       if (basketResult.results.some((item) => item.reserved > Math.max(0, item.owned - 1))) {
-        return Response.json({ error: "Your inventory changed. Review the Trade Basket again." }, { status: 409 });
+        return Response.json({ error: "Your inventory changed. Review the Trade Pile again." }, { status: 409 });
       }
       const historyId = crypto.randomUUID();
       const total = basketResult.results.reduce((sum, item) => sum + item.reserved, 0);

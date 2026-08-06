@@ -377,7 +377,7 @@ export async function handleCollectionRequest(request: Request, env: CollectionE
           .bind(viewer.email, code)
           .first<{ quantity: number }>();
         if (quantity < (reserved?.quantity ?? 0) + 1) {
-          return Response.json({ error: "Remove reserved copies from the Trade Basket first" }, { status: 409 });
+          return Response.json({ error: "Remove reserved copies from the Trade Pile first" }, { status: 409 });
         }
       } else {
         await env.DB.prepare("DELETE FROM trade_basket_items WHERE user_email = ? AND sticker_id = ?").bind(viewer.email, code).run();
