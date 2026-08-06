@@ -1176,11 +1176,29 @@ function SectionTurner({
 function ListView({ kind, stickers, collection, setQuantity, basket, tradeHistory, onBasketAdjust, onTradedOne, onCompleteComparedTrade, onOpenBasket, onImportExtras }: { kind: "needs" | "trade"; stickers: { section: AlbumSection; number: number; code: string; displayCode: string }[]; collection: Collection; setQuantity: (code: string, quantity: number) => void; basket: Collection; tradeHistory: TradeHistoryEntry[]; onBasketAdjust: (code: string, delta: 1 | -1) => Promise<void>; onTradedOne: (code: string) => Promise<void>; onCompleteComparedTrade: (incoming: string[], outgoing: string[]) => Promise<{ id: string; received: number; given: number; total: number } | null>; onOpenBasket: () => void; onImportExtras?: () => void }) {
   const [actionMessage, setActionMessage] = useState("");
   const [compareOpen, setCompareOpen] = useState(false);
+  const [tradeSearch, setTradeSearch] = useState("");
   const isNeeds = kind === "needs";
-  const grouped = sections
+  const searchText = tradeSearch.trim().toLowerCase();
+  const compactSearch = searchText.replace(/[^a-z0-9]/g, "");
+  const visibleStickers = !isNeeds && searchText
+    ? stickers.filter((sticker) => {
+        const searchable = `${sticker.section.code} ${sticker.section.name} ${sticker.code} ${sticker.displayCode} ${sticker.number}`.toLowerCase();
+        const compactSticker = `${sticker.section.code}${sticker.number}`.toLowerCase();
+        if (!compactSearch) return searchable.includes(searchText);
+        if (/^\d+$/.test(compactSearch)) return sticker.number === Number(compactSearch);
+        return searchable.includes(searchText) || searchable.replace(/[^a-z0-9]/g, "").includes(compactSearch) || compactSticker.includes(compactSearch);
+      })
+    : stickers;
+  const allGrouped = sections
     .map((section) => ({
       section,
       stickers: stickers.filter((sticker) => sticker.section.code === section.code),
+    }))
+    .filter((group) => group.stickers.length);
+  const grouped = sections
+    .map((section) => ({
+      section,
+      stickers: visibleStickers.filter((sticker) => sticker.section.code === section.code),
     }))
     .filter((group) => group.stickers.length);
   const totalStickers = catalogStickers.length;
@@ -1194,7 +1212,7 @@ function ListView({ kind, stickers, collection, setQuantity, basket, tradeHistor
   const totalAvailable = stickers.reduce((sum, sticker) => sum + Math.max(0, (collection[sticker.code] ?? 0) - 1 - (basket[sticker.code] ?? 0)), 0);
   const uniqueAvailable = stickers.filter((sticker) => Math.max(0, (collection[sticker.code] ?? 0) - 1 - (basket[sticker.code] ?? 0)) > 0).length;
 
-  const plainTextLines = grouped.map(({ section, stickers: groupStickers }) => {
+  const plainTextLines = allGrouped.map(({ section, stickers: groupStickers }) => {
     const numbers = groupStickers.flatMap((sticker) => {
       if (isNeeds) return stickerDisplayNumber(sticker);
       const available = Math.max(0, (collection[sticker.code] ?? 0) - 1 - (basket[sticker.code] ?? 0));
@@ -1272,9 +1290,20 @@ function ListView({ kind, stickers, collection, setQuantity, basket, tradeHistor
         <div className="trade-tools"><button className="basket-launch" onClick={onOpenBasket}><span>▱</span><strong>Trade Basket</strong><b>{Object.values(basket).reduce((sum, quantity) => sum + quantity, 0)}</b></button><button className="compare-launch" onClick={() => setCompareOpen(true)}><span>⇄</span><strong>Compare Lists</strong><b>›</b></button></div>
       )}
 
+      {!isNeeds && (
+        <div className="trade-search-wrap">
+          <label className="trade-search-field">
+            <span>⌕</span>
+            <input value={tradeSearch} onChange={(event) => setTradeSearch(event.target.value)} placeholder="Search team or sticker, e.g. USA8" aria-label="Search trade extras" />
+            {tradeSearch && <button type="button" onClick={() => setTradeSearch("")} aria-label="Clear trade search">×</button>}
+          </label>
+          <small>{searchText ? `${visibleStickers.length} matching extra${visibleStickers.length === 1 ? "" : "s"}` : "Search by team, country code, sticker code, or number"}</small>
+        </div>
+      )}
+
       <div className="group-list auto-groups">
         <div className="list-explainer">
-          <span>{isNeeds ? "Tap a number when you collect it." : "The first copy always stays in your album."}</span>
+          <span>{isNeeds ? "Tap a number when you collect it." : searchText ? "Showing matching extras only." : "The first copy always stays in your album."}</span>
           <small>{grouped.length} section{grouped.length === 1 ? "" : "s"}</small>
         </div>
         {grouped.length ? grouped.map(({ section, stickers: groupStickers }) => (
@@ -1306,9 +1335,9 @@ function ListView({ kind, stickers, collection, setQuantity, basket, tradeHistor
           </article>
         )) : (
           <div className={`list-complete-state ${isNeeds ? "needs" : "extras"}`}>
-            <span>{isNeeds ? "✓" : "◇"}</span>
-            <h2>{isNeeds ? "Album complete!" : "No extras yet"}</h2>
-            <p>{isNeeds ? "You have every sticker." : "Additional copies you add will appear here."}</p>
+            <span>{isNeeds ? "✓" : searchText ? "⌕" : "◇"}</span>
+            <h2>{isNeeds ? "Album complete!" : searchText ? "No matching extras" : "No extras yet"}</h2>
+            <p>{isNeeds ? "You have every sticker." : searchText ? "Try another team name, country code, or sticker number." : "Additional copies you add will appear here."}</p>
           </div>
         )}
       </div>
