@@ -38,11 +38,12 @@ export async function viewerFromSession(request: Request, db: D1Database) {
   const token = sessionToken(request);
   if (!token) return null;
   const tokenHash = await sha256(token);
-  return db.prepare(
-    `SELECT u.email, u.display_name AS displayName
+  const viewer = await db.prepare(
+    `SELECT u.email, u.display_name AS displayName, u.is_admin AS isAdmin
      FROM sessions s JOIN users u ON u.email = s.user_email
-     WHERE s.token_hash = ? AND s.expires_at > CURRENT_TIMESTAMP`,
-  ).bind(tokenHash).first<{ email: string; displayName: string }>();
+     WHERE s.token_hash = ? AND s.expires_at > CURRENT_TIMESTAMP AND u.is_disabled = 0`,
+  ).bind(tokenHash).first<{ email: string; displayName: string; isAdmin: number }>();
+  return viewer ? { ...viewer, isAdmin: Boolean(viewer.isAdmin) } : null;
 }
 
 async function createSession(db: D1Database, email: string) {
@@ -68,9 +69,9 @@ async function enforceRateLimit(db: D1Database, key: string, maximum: number, wi
 }
 
 async function verifyPassword(db: D1Database, email: string, password: string) {
-  const user = await db.prepare("SELECT email, display_name AS displayName, password_hash AS passwordHash, password_salt AS passwordSalt FROM users WHERE email = ?")
-    .bind(email).first<{ email: string; displayName: string; passwordHash: string | null; passwordSalt: string | null }>();
-  if (!user?.passwordHash || !user.passwordSalt) return null;
+  const user = await db.prepare("SELECT email, display_name AS displayName, password_hash AS passwordHash, password_salt AS passwordSalt, is_disabled AS isDisabled FROM users WHERE email = ?")
+    .bind(email).first<{ email: string; displayName: string; passwordHash: string | null; passwordSalt: string | null; isDisabled: number }>();
+  if (!user?.passwordHash || !user.passwordSalt || user.isDisabled) return null;
   return safeEqual(await hashPassword(password, hexToBytes(user.passwordSalt)), user.passwordHash) ? user : null;
 }
 

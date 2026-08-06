@@ -4,6 +4,7 @@ import handler from "vinext/server/app-router-entry";
 import { handleAccountRequest, handleCollectionRequest } from "./collection-api";
 import { handleTradeRequest } from "./trade-api";
 import { handleAuthRequest } from "./auth-api";
+import { handleAdminRequest } from "./admin-api";
 
 interface Env {
   ASSETS: Fetcher;
@@ -34,6 +35,10 @@ const worker = {
 
     if (url.pathname.startsWith("/api/auth/")) {
       return handleAuthRequest(request, env);
+    }
+
+    if (url.pathname === "/api/admin/users") {
+      return handleAdminRequest(request, env);
     }
 
     if (url.pathname === "/api/collection") {
