@@ -288,7 +288,7 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
           )}
         </section>
 
-        {basketTotal > 0 && <button className="basket-fab" onClick={() => setBasketOpen(true)}><span>▱</span> Basket <b>{basketTotal}</b></button>}
+        {basketTotal > 0 && <button className="basket-fab" onClick={() => setBasketOpen(true)}><span>▱</span> Trade Pile <b>{basketTotal}</b></button>}
 
         <nav className="bottom-nav" aria-label="Primary navigation">
           {(["album", "needs"] as Tab[]).map((item) => (
@@ -1132,10 +1132,10 @@ function StickerGrid({
                 </div>
               )}
               {isExpanded && <div className="sticker-manage-panel">
-                <p>{extras === 0 ? "No extras" : `${extras} extra${extras === 1 ? "" : "s"}${reserved ? ` · ${reserved} in Basket` : ""}`}</p>
+                <p>{extras === 0 ? "No extras" : `${extras} extra${extras === 1 ? "" : "s"}${reserved ? ` · ${reserved} in Trade Pile` : ""}`}</p>
                 {extras > 0 && <button disabled={available < 1} onClick={() => setQuantity(sticker.code, Math.max(1, quantity - 1))}>Remove Extra</button>}
-                {extras > 0 && <button disabled={available < 1} onClick={() => onAddToBasket(sticker.code)}>{available > 0 ? "Add to Basket" : "All in Basket"}</button>}
-                {reserved > 0 && <button onClick={onOpenBasket}>Open Basket</button>}
+                {extras > 0 && <button disabled={available < 1} onClick={() => onAddToBasket(sticker.code)}>{available > 0 ? "Add to Trade Pile" : "All in Trade Pile"}</button>}
+                {reserved > 0 && <button onClick={onOpenBasket}>Open Trade Pile</button>}
                 {quantity === 1 ? <button className="mark-missing" onClick={() => { setQuantity(sticker.code, 0); setExpandedCode(null); }}>Mark Missing</button> : <small>Album copy protected</small>}
               </div>}
             </article>
@@ -1274,7 +1274,7 @@ function ListView({ kind, stickers, collection, setQuantity, basket, tradeHistor
               <div><strong>{stickers.length}</strong><span>Unique extras</span></div>
               <div><strong>{totalDuplicates}</strong><span>Total extra stickers</span></div>
             </div>
-            {totalReserved > 0 && <p className="basket-summary"><strong>{totalReserved}</strong> in Trade Basket <span>·</span> <strong>{totalAvailable}</strong> ready to trade</p>}
+            {totalReserved > 0 && <p className="basket-summary"><strong>{totalReserved}</strong> in Trade Pile <span>·</span> <strong>{totalAvailable}</strong> ready to trade</p>}
           </>
         )}
 
@@ -1287,7 +1287,7 @@ function ListView({ kind, stickers, collection, setQuantity, basket, tradeHistor
       </div>
 
       {!isNeeds && (
-        <div className="trade-tools"><button className="basket-launch" onClick={onOpenBasket}><span>▱</span><strong>Trade Basket</strong><b>{Object.values(basket).reduce((sum, quantity) => sum + quantity, 0)}</b></button><button className="compare-launch" onClick={() => setCompareOpen(true)}><span>⇄</span><strong>Compare Lists</strong><b>›</b></button></div>
+        <div className="trade-tools"><button className="basket-launch" onClick={onOpenBasket}><span>▱</span><strong>Trade Pile</strong><b>{Object.values(basket).reduce((sum, quantity) => sum + quantity, 0)}</b></button><button className="compare-launch" onClick={() => setCompareOpen(true)}><span>⇄</span><strong>Compare Lists</strong><b>›</b></button></div>
       )}
 
       {!isNeeds && (
@@ -1330,7 +1330,7 @@ function ListView({ kind, stickers, collection, setQuantity, basket, tradeHistor
               const extras = Math.max(0, quantity - 1);
               const reserved = basket[sticker.code] ?? 0;
               const available = Math.max(0, extras - reserved);
-              return <article className="extra-inventory-row" key={sticker.code}><div className="extra-identity"><strong>{sticker.displayCode}</strong><small><b>{extras}</b> extra{extras === 1 ? "" : "s"} <span>·</span> <b>{reserved}</b> in Basket <span>·</span> <b>{available}</b> ready</small></div><div className="extra-stepper"><button disabled={available < 1} onClick={() => setQuantity(sticker.code, Math.max(1, quantity - 1))} aria-label={`Remove one extra ${sticker.displayCode}`}>−</button><strong>{extras}</strong><button onClick={() => setQuantity(sticker.code, quantity + 1)} aria-label={`Add one extra ${sticker.displayCode}`}>＋</button></div><div className="extra-row-actions"><button disabled={available < 1} onClick={() => void onBasketAdjust(sticker.code, 1)}>{available > 0 ? "＋ Add to Basket" : "All in Basket"}</button><button disabled={available < 1} onClick={() => void onTradedOne(sticker.code)}>Traded One</button></div></article>;
+              return <article className="extra-inventory-row" key={sticker.code}><div className="extra-identity"><strong>{sticker.displayCode}</strong><small><b>{extras}</b> extra{extras === 1 ? "" : "s"} <span>·</span> <b>{reserved}</b> in Trade Pile <span>·</span> <b>{available}</b> ready</small></div><div className="extra-stepper"><button disabled={available < 1} onClick={() => setQuantity(sticker.code, Math.max(1, quantity - 1))} aria-label={`Remove one extra ${sticker.displayCode}`}>−</button><strong>{extras}</strong><button onClick={() => setQuantity(sticker.code, quantity + 1)} aria-label={`Add one extra ${sticker.displayCode}`}>＋</button></div><div className="extra-row-actions"><button disabled={available < 1} onClick={() => void onBasketAdjust(sticker.code, 1)}>{available > 0 ? "＋ Add to Trade Pile" : "All in Trade Pile"}</button><button disabled={available < 1} onClick={() => void onTradedOne(sticker.code)}>Traded One</button></div></article>;
             })}</div>}
           </article>
         )) : (
