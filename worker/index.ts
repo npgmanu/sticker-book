@@ -9,6 +9,11 @@ import { handleAdminRequest } from "./admin-api";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  EMAIL_PROVIDER?: string;
+  RESEND_API_KEY?: string;
+  EMAIL_FROM?: string;
+  SUPPORT_EMAIL?: string;
+  APP_URL?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -34,7 +39,7 @@ const worker = {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith("/api/auth/")) {
-      return handleAuthRequest(request, env);
+      return handleAuthRequest(request, env, ctx);
     }
 
     if (url.pathname === "/api/admin/users") {
