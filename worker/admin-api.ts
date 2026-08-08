@@ -1,6 +1,10 @@
-import { sendPasswordResetForEmail, viewerFromSession, type AuthEnv } from "./auth-api";
+import { viewerFromSession } from "./auth-api";
 
-type AdminEnv = AuthEnv;
+type AdminEnv = { DB: D1Database };
+
+function randomCode() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(24)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 async function requireAdmin(request: Request, db: D1Database) {
   const viewer = await viewerFromSession(request, db);
@@ -25,12 +29,10 @@ export async function handleAdminRequest(request: Request, env: AdminEnv) {
                 u.is_disabled AS isDisabled,
                 u.created_at AS createdAt,
                 u.updated_at AS updatedAt,
-                v.verified_at AS emailVerifiedAt,
-                (SELECT COUNT(*) FROM sessions s WHERE s.user_email = u.email AND datetime(s.expires_at) > CURRENT_TIMESTAMP) AS activeSessions,
+                (SELECT COUNT(*) FROM sessions s WHERE s.user_email = u.email AND s.expires_at > CURRENT_TIMESTAMP) AS activeSessions,
                 (SELECT COUNT(*) FROM user_collections c WHERE c.user_email = u.email AND c.quantity > 0) AS collected,
                 (SELECT COALESCE(SUM(CASE WHEN c.quantity > 1 THEN c.quantity - 1 ELSE 0 END), 0) FROM user_collections c WHERE c.user_email = u.email) AS extras
          FROM users u
-         LEFT JOIN email_verification_status v ON v.user_email = u.email
          ORDER BY u.created_at DESC, u.email ASC`,
       ).all<{
         email: string;
@@ -40,7 +42,6 @@ export async function handleAdminRequest(request: Request, env: AdminEnv) {
         isDisabled: number;
         createdAt: string;
         updatedAt: string;
-        emailVerifiedAt: string | null;
         activeSessions: number;
         collected: number;
         extras: number;
@@ -52,7 +53,6 @@ export async function handleAdminRequest(request: Request, env: AdminEnv) {
           onboardingCompleted: Boolean(user.onboardingCompleted),
           isDisabled: Boolean(user.isDisabled),
           isAdmin: Boolean(user.isAdmin),
-          emailVerified: Boolean(user.emailVerifiedAt),
         })),
       });
     }
@@ -71,9 +71,17 @@ export async function handleAdminRequest(request: Request, env: AdminEnv) {
     }
 
     if (action === "reset") {
-      const sent = await sendPasswordResetForEmail(env.DB, env, email);
-      if (!sent) return Response.json({ error: "The reset email could not be sent" }, { status: 503 });
-      return Response.json({ ok: true });
+      const resetCode = randomCode();
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      await env.DB.prepare(
+        `INSERT INTO manual_password_resets (user_email, reset_code, expires_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(user_email) DO UPDATE SET
+           reset_code = excluded.reset_code,
+           expires_at = excluded.expires_at,
+           created_at = CURRENT_TIMESTAMP`,
+      ).bind(email, resetCode, expiresAt).run();
+      return Response.json({ ok: true, resetCode, expiresAt });
     }
 
     if (action === "signout") {
@@ -96,8 +104,6 @@ export async function handleAdminRequest(request: Request, env: AdminEnv) {
 
     if (action === "delete") {
       await env.DB.batch([
-        env.DB.prepare("DELETE FROM auth_tokens WHERE user_email = ?").bind(email),
-        env.DB.prepare("DELETE FROM email_verification_status WHERE user_email = ?").bind(email),
         env.DB.prepare("DELETE FROM trade_basket_items WHERE user_email = ?").bind(email),
         env.DB.prepare("DELETE FROM trade_history_items WHERE history_id IN (SELECT id FROM trade_history WHERE user_email = ?)").bind(email),
         env.DB.prepare("DELETE FROM trade_history WHERE user_email = ?").bind(email),
