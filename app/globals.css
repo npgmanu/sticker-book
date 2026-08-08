@@ -719,37 +719,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   gap: 2px;
   color: var(--navy);
 }
-
-/* Transactional account email, verification, and recovery */
-.account-gate { overflow-y: auto; }
-.account-form-message { margin: 0; }
-.account-support { margin: 12px 0 0; color: var(--muted); font-size: 10px; text-align: center; }
-.account-support a { color: var(--pitch); font-weight: 800; }
-.account-result-card { width: 100%; max-width: 390px; margin: auto; padding: 30px 20px; display: flex; flex-direction: column; align-items: center; text-align: center; border: 1px solid #dad9d4; border-radius: 14px; background: rgba(255,253,250,.96); box-shadow: 0 5px 0 rgba(11,18,59,.1); }
-.account-result-card .result-icon { width: 68px; height: 68px; margin-bottom: 18px; display: grid; place-items: center; border-radius: 18px 18px 18px 5px; color: white; background: var(--orange); font-size: 29px; font-weight: 900; }
-.account-result-card .result-icon.success { color: var(--navy); background: var(--lime); }
-.account-result-card h1 { margin: 4px 0 9px; color: var(--navy); font-size: 30px; line-height: 1.1; }
-.account-result-card > p:not(.eyebrow):not(.account-message) { margin: 0 0 20px; color: var(--muted); font-size: 13px; line-height: 1.55; }
-.account-result-card .account-message { width: 100%; margin: 0 0 14px; padding: 9px; border-radius: 7px; color: var(--navy); background: #eef2e9; font-size: 10px; line-height: 1.45; }
-.account-result-card .primary-account-action { width: 100%; min-height: 52px; border: 0; border-radius: 8px; color: white; background: var(--pitch); font-weight: 900; cursor: pointer; }
-.account-result-card .account-switch { width: 100%; }
-.verification-success-screen { padding: 25px 22px; display: flex; flex-direction: column; background: linear-gradient(180deg, #f8f8ee, #e3eee1); }
-
-.settings-list .email-status-setting { width: 100%; min-height: 82px; padding: 10px 14px; display: grid; grid-template-columns: 33px minmax(0,1fr) auto; align-items: center; gap: 10px; border-bottom: 1px solid #eee; background: white; }
-.settings-list .email-status-setting > span { width: 30px; height: 34px; display: grid; place-items: center; color: var(--pitch); background: #e9eee5; font-weight: 900; }
-.settings-list .email-status-setting > div { min-width: 0; display: flex; flex-direction: column; }
-.email-status-setting small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.email-status-setting em { margin-top: 4px; font-size: 9px; font-style: normal; font-weight: 900; }
-.email-status-setting em.verified { color: #187348; }
-.email-status-setting em.unverified { color: #a13e2c; }
-.email-status-setting i { margin-top: 5px; color: var(--muted); font-size: 9px; font-style: normal; line-height: 1.35; }
-.settings-list .email-status-setting button { width: auto; min-height: 40px; padding: 0 10px; display: inline-grid; grid-template-columns: 1fr; border: 0; border-radius: 7px; color: white; background: var(--pitch); font-size: 9px; font-weight: 900; white-space: nowrap; cursor: pointer; }
-.settings-list .email-status-setting button:disabled { opacity: .55; cursor: not-allowed; }
-
-@media (max-width: 360px) {
-  .settings-list .email-status-setting { grid-template-columns: 33px minmax(0,1fr); }
-  .settings-list .email-status-setting button { grid-column: 2; justify-self: start; }
-}
 .nav-add-icon {
   width: 52px;
   height: 52px;
