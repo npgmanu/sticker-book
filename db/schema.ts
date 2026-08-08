@@ -22,6 +22,22 @@ export const sessions = sqliteTable("sessions", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
+export const emailVerificationStatus = sqliteTable("email_verification_status", {
+  userEmail: text("user_email").primaryKey().notNull().references(() => users.email, { onDelete: "cascade" }),
+  required: integer("required", { mode: "boolean" }).notNull().default(false),
+  verifiedAt: text("verified_at"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const authTokens = sqliteTable("auth_tokens", {
+  tokenHash: text("token_hash").primaryKey(),
+  userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  purpose: text("purpose", { enum: ["verify", "reset"] }).notNull(),
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const albums = sqliteTable("albums", {
   id: text("id").primaryKey(),
   slug: text("slug").notNull().unique(),
