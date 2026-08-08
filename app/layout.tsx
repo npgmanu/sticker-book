@@ -15,6 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Sticker Book | Track. Complete. Trade.",
   description: "A mobile-first soccer sticker collection tracker for World Cup 2026 and beyond.",
+  referrer: "no-referrer",
   other: {
     "codex-preview": "development",
     "apple-mobile-web-app-capable": "yes",

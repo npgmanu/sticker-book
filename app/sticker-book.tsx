@@ -11,9 +11,9 @@ import { FlagIcon } from "./flag-icon";
 import { AdminDashboard } from "./admin-dashboard";
 
 type Tab = "album" | "needs" | "trade" | "profile";
-type Viewer = { name: string; email: string; signedIn: boolean; isAdmin?: boolean };
+type Viewer = { name: string; email: string; signedIn: boolean; isAdmin?: boolean; emailVerified?: boolean };
 type Collection = Record<string, number>;
-type AccountState = "loading" | "signedOut" | "onboarding" | "ready" | "error";
+type AccountState = "loading" | "signedOut" | "verificationSuccess" | "onboarding" | "ready" | "error";
 type SetupMethod = "new" | "already" | "import";
 type PackEntry = {
   id: number;
@@ -46,6 +46,9 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
   const [accountState, setAccountState] = useState<AccountState>("loading");
   const [activeViewer, setActiveViewer] = useState(viewer);
   const [displayName, setDisplayName] = useState(viewer.name);
+  const [supportEmail, setSupportEmail] = useState("");
+  const [passwordResetToken, setPasswordResetToken] = useState("");
+  const [authLinkError, setAuthLinkError] = useState("");
   const collectionRef = useRef<Collection>({});
   const packSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const tradeSaveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -53,13 +56,42 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
   useEffect(() => {
     async function loadAccount() {
       try {
+        void fetch("/api/auth/public-config").then((response) => response.json()).then((data) => setSupportEmail(data.supportEmail ?? "")).catch(() => undefined);
+        const currentUrl = new URL(window.location.href);
+        const resetToken = currentUrl.searchParams.get("reset") ?? "";
+        const verifyToken = currentUrl.searchParams.get("verify") ?? "";
+        if (resetToken || verifyToken) {
+          currentUrl.searchParams.delete("reset");
+          currentUrl.searchParams.delete("verify");
+          window.history.replaceState({}, "", `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
+        }
+        if (resetToken) {
+          setPasswordResetToken(resetToken);
+          setAccountState("signedOut");
+          return;
+        }
+        if (verifyToken) {
+          const response = await fetch("/api/auth/verify-email", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ token: verifyToken }),
+          });
+          const data = await response.json();
+          if (!response.ok) {
+            setAuthLinkError(data.error ?? "Verification link is invalid or expired");
+            setAccountState("signedOut");
+            return;
+          }
+          setAccountState("verificationSuccess");
+          return;
+        }
         const accountResponse = await fetch("/api/account");
         if (accountResponse.status === 401) { setAccountState("signedOut"); return; }
         if (!accountResponse.ok) throw new Error("Account unavailable");
         const accountData = await accountResponse.json();
         const sessionResponse = await fetch("/api/auth/session");
         const sessionData = await sessionResponse.json();
-        if (sessionData.viewer) setActiveViewer({ name: sessionData.viewer.displayName, email: sessionData.viewer.email, signedIn: true, isAdmin: Boolean(sessionData.viewer.isAdmin) });
+        if (sessionData.viewer) setActiveViewer({ name: sessionData.viewer.displayName, email: sessionData.viewer.email, signedIn: true, isAdmin: Boolean(sessionData.viewer.isAdmin), emailVerified: Boolean(sessionData.viewer.emailVerified) });
         if (accountData.profile?.displayName) setDisplayName(accountData.profile.displayName);
         if (!accountData.profile?.onboardingCompleted) {
           setAccountState("onboarding");
@@ -195,8 +227,9 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
           ? "Extras"
           : "Collector Profile";
 
-  if (accountState === "signedOut") return <AccountGate />;
+  if (accountState === "signedOut") return <AccountGate initialResetToken={passwordResetToken} initialError={authLinkError} supportEmail={supportEmail} />;
   if (accountState === "loading") return <AccountLoading />;
+  if (accountState === "verificationSuccess") return <EmailVerified />;
   if (accountState === "error") return <AccountError />;
   if (accountState === "onboarding") {
     return (
@@ -284,7 +317,7 @@ export default function StickerBook({ viewer }: { viewer: Viewer }) {
               onImportExtras={() => setImportExtrasOpen(true)}
             />
           ) : (
-            <ProfileView viewer={displayedViewer} stats={stats} onImport={() => setImportOpen(true)} />
+            <ProfileView viewer={displayedViewer} stats={stats} supportEmail={supportEmail} onImport={() => setImportOpen(true)} />
           )}
         </section>
 
@@ -727,50 +760,168 @@ function ImportCollection({
   );
 }
 
-function AccountGate() {
-  const [mode, setMode] = useState<"signup" | "login" | "reset">("login");
+function AccountGate({ initialResetToken, initialError, supportEmail }: { initialResetToken: string; initialError: string; supportEmail: string }) {
+  type GateMode = "signup" | "login" | "forgot" | "reset" | "check" | "changeEmail" | "resetSuccess";
+  const [mode, setMode] = useState<GateMode>(initialResetToken ? "reset" : "login");
   const [email, setEmail] = useState("");
+  const [pendingEmail, setPendingEmail] = useState("");
+  const [newEmail, setNewEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [resetCode, setResetCode] = useState("");
-  const [error, setError] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetToken] = useState(initialResetToken);
+  const [message, setMessage] = useState(initialError);
   const [saving, setSaving] = useState(false);
-  async function submit(event: React.FormEvent) {
-    event.preventDefault(); setSaving(true); setError("");
-    try {
-      const response = await fetch(`/api/auth/${mode === "reset" ? "manual-reset" : mode}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(mode === "reset" ? { email, resetCode, newPassword: password } : { email, password }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Account request failed");
-      if (mode === "reset") { setMode("login"); setPassword(""); setResetCode(""); setError("Password reset. You can sign in now."); setSaving(false); return; }
-      window.location.reload();
-    } catch (accountError) { setError(accountError instanceof Error ? accountError.message : "Account request failed"); setSaving(false); }
+
+  function changeMode(nextMode: GateMode) {
+    setMode(nextMode);
+    setMessage("");
+    setPassword("");
+    setConfirmPassword("");
   }
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setMessage("");
+    try {
+      if (mode === "forgot") {
+        const response = await fetch("/api/auth/forgot-password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Password reset could not be requested");
+        setMessage(data.message ?? "If an account exists for that email, we've sent a password reset link.");
+        return;
+      }
+      if (mode === "reset") {
+        if (password !== confirmPassword) throw new Error("Passwords do not match");
+        const response = await fetch("/api/auth/reset-password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: resetToken, newPassword: password }) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Password could not be reset");
+        setMode("resetSuccess");
+        setPassword("");
+        setConfirmPassword("");
+        setMessage("Password updated");
+        return;
+      }
+      if (mode === "changeEmail") {
+        const response = await fetch("/api/auth/change-unverified-email", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ currentEmail: pendingEmail, newEmail, password }) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Email address could not be changed");
+        setPendingEmail(data.email);
+        setEmail(data.email);
+        setNewEmail("");
+        setPassword("");
+        setMode("check");
+        setMessage(data.emailSent ? "A new verification email was sent." : "We could not send the email yet. Try Resend Email.");
+        return;
+      }
+      const response = await fetch(`/api/auth/${mode}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }) });
+      const data = await response.json();
+      if (!response.ok) {
+        if (data.code === "EMAIL_VERIFICATION_REQUIRED") {
+          setPendingEmail(data.email ?? email);
+          setMode("check");
+          setMessage("Verify your email before signing in.");
+          return;
+        }
+        throw new Error(data.error ?? "Account request failed");
+      }
+      if (mode === "signup") {
+        setPendingEmail(data.email ?? email);
+        setMode("check");
+        setPassword("");
+        setMessage(data.emailSent ? "Verification email sent." : "We could not send the email yet. Try Resend Email.");
+        return;
+      }
+      window.location.reload();
+    } catch (accountError) {
+      setMessage(accountError instanceof Error ? accountError.message : "Account request failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resendVerification() {
+    setSaving(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/auth/resend-verification", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: pendingEmail }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Please wait before sending another email");
+      setMessage(data.message ?? "If that email can be verified, we've sent a verification link.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Please wait before sending another email");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const simpleScreen = mode === "check" || mode === "resetSuccess";
   return (
     <main className="app-shell account-shell">
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
       <section className="phone-frame account-gate">
         <div className="account-brand"><span className="brand-mark">SB</span><span>STICKER BOOK</span></div>
-        <div className="gate-art" aria-hidden="true">
-          <div className="gate-sticker gate-one"><span>USA</span><strong>04</strong></div>
-          <div className="gate-sticker gate-two"><span>BRA</span><strong>07</strong></div>
-          <div className="gate-sticker gate-three"><span>GER</span><strong>11</strong></div>
-        </div>
-        <div className="gate-copy">
-          <p className="eyebrow">YOUR COLLECTION. YOUR PROGRESS.</p>
-          <h1>Every sticker has its place.</h1>
-          <p>Track what you own, find what you need, and keep your trade pile ready.</p>
-        </div>
-        <form className="account-form" onSubmit={submit}>
-          <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label>
-          {mode === "reset" && <label>Reset code<input value={resetCode} onChange={(event) => setResetCode(event.target.value)} autoComplete="one-time-code" required /></label>}
-          <label>{mode === "reset" ? "New password" : "Password"}<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" || mode === "reset" ? "new-password" : "current-password"} minLength={10} required /></label>
-          {error && <p className="import-error" role="alert">{error}</p>}
-          <button className="primary-account-action" type="submit" disabled={saving}>{saving ? "Please wait…" : mode === "signup" ? "Create account" : mode === "reset" ? "Reset password" : "Sign in"}</button>
-          <button className="account-switch" type="button" onClick={() => { setMode(mode === "signup" ? "login" : "signup"); setError(""); }}>{mode === "signup" ? "I already have an account" : "Create a new account"}</button>
-          {mode === "login" && <button className="account-switch reset-link" type="button" onClick={() => { setMode("reset"); setError("Contact the site owner to request a one-time reset code."); }}>Forgot password?</button>}
-          {mode === "reset" && <button className="account-switch" type="button" onClick={() => { setMode("login"); setError(""); }}>Back to sign in</button>}
-        </form>
+        {!simpleScreen && mode !== "reset" && mode !== "forgot" && mode !== "changeEmail" && <div className="gate-art" aria-hidden="true"><div className="gate-sticker gate-one"><span>USA</span><strong>04</strong></div><div className="gate-sticker gate-two"><span>BRA</span><strong>07</strong></div><div className="gate-sticker gate-three"><span>GER</span><strong>11</strong></div></div>}
+
+        {mode === "check" ? (
+          <div className="account-result-card">
+            <span className="result-icon">✉</span>
+            <p className="eyebrow">ACCOUNT SECURITY</p>
+            <h1>Check your email</h1>
+            <p>We sent a verification link to <strong>{pendingEmail}</strong>.</p>
+            {message && <p className="account-message" role="status">{message}</p>}
+            <button className="primary-account-action" onClick={() => void resendVerification()} disabled={saving}>{saving ? "Sending…" : "Resend Email"}</button>
+            <button className="account-switch" onClick={() => changeMode("changeEmail")}>Change Email</button>
+            <button className="account-switch" onClick={() => changeMode("login")}>Back to Sign In</button>
+          </div>
+        ) : mode === "resetSuccess" ? (
+          <div className="account-result-card">
+            <span className="result-icon success">✓</span>
+            <p className="eyebrow">ACCOUNT SECURITY</p>
+            <h1>Password updated</h1>
+            <p>You can now sign in with your new password.</p>
+            <button className="primary-account-action" onClick={() => changeMode("login")}>Return to Sign In</button>
+          </div>
+        ) : (
+          <>
+            <div className="gate-copy">
+              <p className="eyebrow">{mode === "forgot" || mode === "reset" || mode === "changeEmail" ? "ACCOUNT SECURITY" : "YOUR COLLECTION. YOUR PROGRESS."}</p>
+              <h1>{mode === "forgot" ? "Reset your password." : mode === "reset" ? "Choose a new password." : mode === "changeEmail" ? "Change your email." : "Every sticker has its place."}</h1>
+              <p>{mode === "forgot" ? "Enter your email and we'll send a secure reset link." : mode === "reset" ? "Use at least 10 characters." : mode === "changeEmail" ? `Update the unverified address ${pendingEmail}.` : "Track what you own, find what you need, and keep your trade pile ready."}</p>
+            </div>
+            <form className="account-form" onSubmit={submit}>
+              {mode === "changeEmail" ? <label>New Email<input type="email" value={newEmail} onChange={(event) => setNewEmail(event.target.value)} autoComplete="email" required /></label> : mode !== "reset" && <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label>}
+              {!["forgot"].includes(mode) && <label>{mode === "reset" ? "New Password" : mode === "changeEmail" ? "Current Password" : "Password"}<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" || mode === "reset" ? "new-password" : "current-password"} minLength={10} required /></label>}
+              {mode === "reset" && <label>Confirm New Password<input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={10} required /></label>}
+              {message && <p className="import-error account-form-message" role="status">{message}</p>}
+              <button className="primary-account-action" type="submit" disabled={saving}>{saving ? "Please wait…" : mode === "signup" ? "Create Account" : mode === "forgot" ? "Send Reset Link" : mode === "reset" ? "Reset Password" : mode === "changeEmail" ? "Update Email" : "Sign In"}</button>
+              {mode === "login" && <><button className="account-switch" type="button" onClick={() => changeMode("signup")}>Create a new account</button><button className="account-switch reset-link" type="button" onClick={() => changeMode("forgot")}>Forgot password?</button></>}
+              {mode === "signup" && <button className="account-switch" type="button" onClick={() => changeMode("login")}>I already have an account</button>}
+              {["forgot", "reset"].includes(mode) && <button className="account-switch" type="button" onClick={() => changeMode("login")}>Back to Sign In</button>}
+              {mode === "changeEmail" && <button className="account-switch" type="button" onClick={() => changeMode("check")}>Cancel</button>}
+            </form>
+          </>
+        )}
+        {supportEmail && <p className="account-support">Need help? <a href={`mailto:${supportEmail}`}>{supportEmail}</a></p>}
         <p className="privacy-note"><span>●</span> Your sticker collection stays private to your account.</p>
+      </section>
+    </main>
+  );
+}
+
+function EmailVerified() {
+  return (
+    <main className="app-shell account-shell">
+      <section className="phone-frame state-screen verification-success-screen">
+        <div className="account-brand"><span className="brand-mark">SB</span><span>STICKER BOOK</span></div>
+        <div className="account-result-card">
+          <span className="result-icon success">✓</span>
+          <p className="eyebrow">ACCOUNT SECURITY</p>
+          <h1>Email verified</h1>
+          <p>Your email is confirmed. Continue to your Sticker Book.</p>
+          <button className="primary-account-action" onClick={() => window.location.replace("/")}>Continue</button>
+        </div>
       </section>
     </main>
   );
@@ -1351,10 +1502,12 @@ function ListView({ kind, stickers, collection, setQuantity, basket, tradeHistor
 function ProfileView({
   viewer,
   stats,
+  supportEmail,
   onImport,
 }: {
   viewer: Viewer;
   stats: { unique: number; missing: number; extras: number; percent: number };
+  supportEmail: string;
   onImport: () => void;
 }) {
   return (
@@ -1370,13 +1523,41 @@ function ProfileView({
       </div>
       <div className="settings-list">
         <div className="active-album-setting"><span>▣</span><div><strong>World Cup 2026</strong><small>Active album</small></div></div>
+        <EmailStatus email={viewer.email} verified={Boolean(viewer.emailVerified)} />
         <button onClick={onImport}><span>↧</span><div><strong>Import collection</strong><small>Paste a missing-sticker list</small></div><b>›</b></button>
         <AccountTools />
         {viewer.isAdmin && <AdminDashboard />}
+        {supportEmail && <a className="settings-link" href={`mailto:${supportEmail}`}><span>?</span><div><strong>Help &amp; Support</strong><small>{supportEmail}</small></div><b>›</b></a>}
         <a className="settings-link" href="/privacy"><span>i</span><div><strong>Privacy</strong><small>How your account data is used</small></div><b>›</b></a>
       </div>
       {viewer.signedIn && <button className="signout" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.reload(); }}>Sign out</button>}
     </section>
+  );
+}
+
+function EmailStatus({ email, verified }: { email: string; verified: boolean }) {
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  async function verifyEmail() {
+    setSending(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/auth/resend-verification", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Verification email could not be sent");
+      setMessage("Check your email for the verification link.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Verification email could not be sent");
+    } finally {
+      setSending(false);
+    }
+  }
+  return (
+    <div className="email-status-setting">
+      <span>@</span>
+      <div><strong>Email</strong><small>{email}</small><em className={verified ? "verified" : "unverified"}>{verified ? "Verified ✓" : "Not verified"}</em>{message && <i>{message}</i>}</div>
+      {!verified && <button onClick={() => void verifyEmail()} disabled={sending}>{sending ? "Sending…" : "Verify Email"}</button>}
+    </div>
   );
 }
 

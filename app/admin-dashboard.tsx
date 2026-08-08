@@ -8,14 +8,13 @@ type AdminUser = {
   onboardingCompleted: boolean;
   isDisabled: boolean;
   isAdmin: boolean;
+  emailVerified: boolean;
   createdAt: string;
   updatedAt: string;
   activeSessions: number;
   collected: number;
   extras: number;
 };
-
-type ResetDetails = { email: string; resetCode: string; expiresAt: string };
 
 function readableDate(value: string) {
   const date = new Date(value);
@@ -28,7 +27,6 @@ export function AdminDashboard() {
   const [search, setSearch] = useState("");
   const [busyEmail, setBusyEmail] = useState("");
   const [message, setMessage] = useState("");
-  const [reset, setReset] = useState<ResetDetails | null>(null);
 
   const filteredUsers = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -56,7 +54,6 @@ export function AdminDashboard() {
     if (["signout", "disable", "delete"].includes(action) && !window.confirm(`Are you sure you want to ${labels[action]} ${user.email}?`)) return;
     setBusyEmail(user.email);
     setMessage("");
-    setReset(null);
     try {
       const response = await fetch("/api/admin/users", {
         method: "POST",
@@ -66,8 +63,7 @@ export function AdminDashboard() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Admin action failed");
       if (action === "reset") {
-        setReset({ email: user.email, resetCode: data.resetCode, expiresAt: data.expiresAt });
-        setMessage("One-time reset code created. It expires in 30 minutes.");
+        setMessage(`Password reset email sent to ${user.email}.`);
       } else {
         setMessage(action === "delete" ? `${user.email} was permanently removed.` : `${user.email} was updated.`);
       }
@@ -76,16 +72,6 @@ export function AdminDashboard() {
       setMessage(error instanceof Error ? error.message : "Admin action failed");
     } finally {
       setBusyEmail("");
-    }
-  }
-
-  async function copyResetCode() {
-    if (!reset) return;
-    try {
-      await navigator.clipboard.writeText(reset.resetCode);
-      setMessage("Reset code copied. Send it only to the account owner.");
-    } catch {
-      setMessage("Copy failed. Press and hold the code to copy it.");
     }
   }
 
@@ -106,13 +92,6 @@ export function AdminDashboard() {
                 <div><strong>{disabledCount}</strong><span>Disabled</span></div>
               </div>
               <label className="admin-search"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name or email" /></label>
-              {reset && (
-                <section className="reset-code-card">
-                  <div><strong>Reset code for {reset.email}</strong><small>Expires {new Date(reset.expiresAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small></div>
-                  <code>{reset.resetCode}</code>
-                  <button onClick={() => void copyResetCode()}>Copy reset code</button>
-                </section>
-              )}
               {message && <p className="admin-message" role="status">{message}</p>}
               <div className="admin-user-list">
                 {filteredUsers.map((user) => (
@@ -127,10 +106,10 @@ export function AdminDashboard() {
                       <span><strong>{user.extras}</strong> extras</span>
                       <span><strong>{user.activeSessions}</strong> sessions</span>
                     </div>
-                    <p>Joined {readableDate(user.createdAt)}{!user.onboardingCompleted ? " · Setup not finished" : ""}</p>
+                    <p>Joined {readableDate(user.createdAt)} · {user.emailVerified ? "Email verified" : "Email not verified"}{!user.onboardingCompleted ? " · Setup not finished" : ""}</p>
                     {!user.isAdmin && (
                       <div className="admin-user-actions">
-                        <button disabled={busyEmail === user.email} onClick={() => void runAction(user, "reset")}>Reset password</button>
+                        <button disabled={busyEmail === user.email} onClick={() => void runAction(user, "reset")}>Send reset email</button>
                         <button disabled={busyEmail === user.email || user.isDisabled} onClick={() => void runAction(user, "signout")}>Sign out</button>
                         <button disabled={busyEmail === user.email} onClick={() => void runAction(user, user.isDisabled ? "enable" : "disable")}>{user.isDisabled ? "Restore" : "Disable"}</button>
                         <button className="delete-user" disabled={busyEmail === user.email} onClick={() => void runAction(user, "delete")}>Delete</button>
